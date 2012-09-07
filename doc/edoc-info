@@ -1,0 +1,3 @@
+{application,rt}.
+{packages,[]}.
+{modules,[rt_app,rt_sup]}.
