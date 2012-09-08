@@ -1,0 +1,40 @@
+
+{
+	{host, "www.web.de"},
+	{path, "/doc/en/"},
+	{params, [
+		{"q", "name"},
+		{"Limit", "10"}
+		]
+	},
+	{method, "GET"},
+	{header, ""},
+	{body, ""}
+}.
+
+
+{
+	{host, "www.lalal.com"}
+	, [{path, "www.lalal.com"}]
+	, [{params, 
+		[
+			{"q", "meine Suche"}
+			, {"limit", "100"}
+		]
+	}]
+}.
+
+
+
+{
+	[{host, "www.lalal.com"}]
+	, [{path, "www.lalal.com"}]
+	, [{params, 
+		[
+			{"q", "meine Suche"}
+			, {"limit", "100"}
+		]
+	}]
+}.
+
+
