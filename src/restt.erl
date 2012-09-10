@@ -1,26 +1,43 @@
+% RESTt - REST Test Library
+%
+% @author Robert Döring
+
 -module(restt).
 
 -include_lib("ibrowse/include/ibrowse.hrl").
 -include_lib("proper/include/proper.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -define(TYPEMARKER, xyz_type).
 
 
 -export([
-	test_stat_req/0,
+	start_link/0,
 	prop_test/1
 	]).
 
 % Record for static request.
+% @todo export into a header file
 -record(statreq, {host, path, params, method, header, body}).
 
 %
-% @doc 
 %
-test_stat_req() ->
-	A = #statreq{host="http://www.web.de", path="/doc/en", params=[{"q", "name"}, {"Limit", "10"}], method=get, header="", body=""},
-	stat_req(A).
+%
+run_test() ->
+	A = 12,
+	B = 32,
+	?assert(A < B).
 
+%
+% @todo write a doc
+% http://maps.googleapis.com/maps/api/geocode/json?address=Berlin,Germany&sensor=false
+stat_req_test() ->
+	A = #statreq{host="http://maps.googleapis.com", path="/maps/api/geocode/json", params=[{"address", "Berlin,Germany"}, {"sensor", "false"}], method=get, header="", body=""},
+	io:format("Request: ~n~p~n", [A]),
+	Res = stat_req(A),
+	io:format("Result: ~n~p~n", [Res]),
+	{Rc, _State, _Header, _Body} = Res,
+	?assert( Rc == ok).
 
 %
 %
@@ -29,13 +46,14 @@ start_link() ->
 	ibrowse:start_link().
 
 %
-% @todo implement all attr.
+% @todo implement all attr. and dont use a record.
 %
 stat_req(P) ->
 	Host = P#statreq.host,
 	Path = P#statreq.path,
 	Method = P#statreq.method,
 
+	ibrowse:start_link(),
 	ibrowse:send_req(string:concat(Host, Path), [], Method).
 
 
