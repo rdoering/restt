@@ -1,8 +1,8 @@
 {application,rt,
-             [{description,["RT - REST Test"]},
-              {vsn,"1"},
-              {registered,[]},
-              {applications,[kernel,stdlib]},
-              {mod,{rt_app,[]}},
-              {env,[]},
-              {modules,[restt]}]}.
+             [{description, ["RESTt - REST Test"]},
+              {vsn, "0.1"},
+              {registered, []},
+              {applications,[kernel, stdlib]},
+              {env, []},
+              {modules, [restt]}
+             ]}.
