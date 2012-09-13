@@ -12,6 +12,8 @@
 
 
 -export([
+	param_to_str/3,
+	param_to_str/1,
 	start_link/0,
 	prop_test/1,
 	test1/0
@@ -19,6 +21,7 @@
 
 % Record for static request.
 % @todo export into a header file
+% @todo don't use an record, usr 
 -record(statreq, {host, path, params, method, header, body}).
 
 %
@@ -30,8 +33,8 @@ run_test() ->
 	?assert(A < B).
 
 %
-% @todo write a doc
-% http://maps.googleapis.com/maps/api/geocode/json?address=Berlin,Germany&sensor=false
+% Request for http://maps.googleapis.com/maps/api/geocode/json?address=Berlin,Germany&sensor=false
+%
 stat_req_test() ->
 	A = #statreq{host="http://maps.googleapis.com", 
 		path="/maps/api/geocode/json", 
@@ -60,23 +63,32 @@ stat_req(P) ->
 	Host = P#statreq.host,
 	Path = P#statreq.path,
 	Method = P#statreq.method,
+	ParamStr = param_to_str(P#statreq.params),
+	PathAndParams = string:concat(Path, ParamStr),
 
 	ibrowse:start_link(),
-	ibrowse:send_req(string:concat(Host, Path), [], Method).
+	ibrowse:send_req(string:concat(Host, PathAndParams), [], Method).
 
 
-...hier gehts weiter ....
 %
-% 
+% Combine parameters to one string
 %
-param_to_str([{Key, Value}} | []]], String, NumOfParam) ->
+param_to_str(ListOfParams) ->
+	param_to_str(ListOfParams, "", 0).
+
+param_to_str([{Key, Value} | Rest], IncompleteResultString, NumOfParam) ->
 	case NumOfParam of
 		0 ->
 			StringWithDelimiter = "?";
 		_ ->
-			StringWithDelimiter = string:concat(String, ",")
-	end
-	string:concat(StringWithDelimiter, string:concat("=", Value)).
+			StringWithDelimiter = string:concat(IncompleteResultString, "&")
+	end,
+	
+	param_to_str(Rest, string:concat(StringWithDelimiter, string:concat(Key, string:concat("=", Value))), NumOfParam + 1);
+
+param_to_str([], ResultString, _) ->
+	ResultString.
+
 
 prop_test(Repetitions) ->
 	proper:quickcheck(test1(), Repetitions).
