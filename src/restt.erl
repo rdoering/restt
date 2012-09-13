@@ -13,7 +13,8 @@
 
 -export([
 	start_link/0,
-	prop_test/1
+	prop_test/1,
+	test1/0
 	]).
 
 % Record for static request.
@@ -32,7 +33,14 @@ run_test() ->
 % @todo write a doc
 % http://maps.googleapis.com/maps/api/geocode/json?address=Berlin,Germany&sensor=false
 stat_req_test() ->
-	A = #statreq{host="http://maps.googleapis.com", path="/maps/api/geocode/json", params=[{"address", "Berlin,Germany"}, {"sensor", "false"}], method=get, header="", body=""},
+	A = #statreq{host="http://maps.googleapis.com", 
+		path="/maps/api/geocode/json", 
+		params=[{"address", "Berlin,Germany"}, 
+				{"sensor", "false"}], 
+		method=get, 
+		header="", 
+		body=""},
+
 	io:format("Request: ~n~p~n", [A]),
 	Res = stat_req(A),
 	io:format("Result: ~n~p~n", [Res]),
@@ -57,9 +65,21 @@ stat_req(P) ->
 	ibrowse:send_req(string:concat(Host, Path), [], Method).
 
 
+...hier gehts weiter ....
+%
+% 
+%
+param_to_str([{Key, Value}} | []]], String, NumOfParam) ->
+	case NumOfParam of
+		0 ->
+			StringWithDelimiter = "?";
+		_ ->
+			StringWithDelimiter = string:concat(String, ",")
+	end
+	string:concat(StringWithDelimiter, string:concat("=", Value)).
 
 prop_test(Repetitions) ->
-	proper:quicktest_stat_req(test1(), Repetitions).
+	proper:quickcheck(test1(), Repetitions).
 
 test1() ->
 	{Min, Max} = {1.0, 100.0},
