@@ -100,7 +100,13 @@ varlist_to_map_test() ->
 			{var, "vMinutes", {integer, 0, 60}},
 			{var, "vFloatPercent", {float, 0.0, 1.0}}
 		],
-	varlist_to_map(L).
+	Ets = varlist_to_map(L),
+	?assert(length(ets:lookup(Ets, "vHours")) == 1),
+	?assert(length(ets:lookup(Ets, "vHours2")) == 0),
+	?assert(length(ets:lookup(Ets, "vMinutes")) == 1),
+	?assert(length(ets:lookup(Ets, "vFloatPercent")) == 1),
+	?assert(length(ets:lookup(Ets, "nix")) == 0),
+	Ets.
 
 
 %
