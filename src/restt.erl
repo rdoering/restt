@@ -90,6 +90,36 @@ param_to_str([], ResultString, _) ->
 	ResultString.
 
 
+
+%
+% Configuration
+%
+varlist_to_map_test() ->
+	L = [
+			{var, "vHours", {integer, 0, 24}},
+			{var, "vMinutes", {integer, 0, 60}},
+			{var, "vFloatPercent", {float, 0.0, 1.0}}
+		],
+	varlist_to_map(L).
+
+
+%
+% Reads inall variables into a ETS and return this.
+%
+varlist_to_map(VarList) ->
+	Storage = ets:new(restt_vars, []),
+	varlist_to_map(Storage, VarList).
+
+varlist_to_map(Storage, [{var, Name, Content} | Rest]) ->
+	ets:insert(Storage, {Name, Content}),
+	varlist_to_map(Storage, Rest);	
+varlist_to_map(Storage, []) ->
+	Storage.
+
+%
+% Proper testing
+%
+
 prop_test(Repetitions) ->
 	proper:quickcheck(test1(), Repetitions).
 
