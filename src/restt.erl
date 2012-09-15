@@ -24,6 +24,8 @@
 % @todo don't use an record, usr 
 -record(statreq, {host, path, params, method, header, body}).
 
+% Storages for variables, requests, replies and tests
+
 %
 %
 %
