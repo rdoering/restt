@@ -12,6 +12,7 @@
 
 
 -export([
+	quickcheck/1,
 	param_to_str/3,
 	param_to_str/1,
 	start_link/0,
@@ -24,7 +25,57 @@
 % @todo don't use an record, usr 
 -record(statreq, {host, path, params, method, header, body}).
 
-% Storages for variables, requests, replies and tests
+-record(request, {name, host, path, params, method, header, body}).
+-record(reply, {name, match_list}).
+-record(test, {name, request_name, reply_name, iter}).
+
+% Storages for lists of variables, requests, replies and tests
+-record(storage, {vars, requests, replies, tests}).
+
+
+%
+% Run REST test
+%
+quickcheck(Config) ->
+	ListOfTests = cfg_get_list_of_tests(Config),
+	run_tests(Config, ListOfTests).
+
+quickcheck_test() ->
+	Config = [
+			{var, "vHours", {integer, 0, 24}},
+			{var, "vMinutes", {integer, 0, 60}},
+			{var, "vFloatPercent", {float, 0.0, 1.0}},
+
+			{request, "req1", "http://maps.googleapis.com", "/maps/api/geocode/json", 
+				[{"address", "Berlin,Germany"}, {"sensor", "false"}], get, "", ""},
+
+			{reply, "rep1",  [{status, 200}] },
+
+			{test, "test1", "req1", "rep1", 100}
+		],
+	quickcheck(Config).
+
+
+%
+% Go step by step through all tests
+%
+% @spec run_tests(Config, Tests) -> ok | ???
+% where
+%	Config = list()
+%	Tests = list()
+%	ok = atom()
+%
+run_tests(Config, [Test | OtherTests]) ->
+	io:format("Run Test ~p ~n", [Test#test.name]),
+
+	io:format("    Send Request ~p ~n", [Test#test.request_name]),
+	ReqEntry = cfg_get_request_entry(Config, Test#test.request_name),
+	io:format("    Request: ~n~p~n", [ReqEntry]),
+	Res = stat_req(ReqEntry#request.host, ReqEntry#request.path, ReqEntry#request.method, ReqEntry#request.params),
+	
+	io:format("    Reply Rule ~p ~n", [Test#test.reply_name]).
+
+
 
 %
 %
@@ -38,7 +89,7 @@ run_test() ->
 % Request for http://maps.googleapis.com/maps/api/geocode/json?address=Berlin,Germany&sensor=false
 %
 stat_req_test() ->
-	A = #statreq{host="http://maps.googleapis.com", 
+	A = #request{host="http://maps.googleapis.com", 
 		path="/maps/api/geocode/json", 
 		params=[{"address", "Berlin,Germany"}, 
 				{"sensor", "false"}], 
@@ -47,7 +98,7 @@ stat_req_test() ->
 		body=""},
 
 	io:format("Request: ~n~p~n", [A]),
-	Res = stat_req(A),
+	Res = stat_req(A#request.host, A#request.path, A#request.method, A#request.params),
 	io:format("Result: ~n~p~n", [Res]),
 	{Rc, _State, _Header, _Body} = Res,
 	?assert( Rc == ok).
@@ -61,11 +112,8 @@ start_link() ->
 %
 % @todo implement all attr. and dont use a record.
 %
-stat_req(P) ->
-	Host = P#statreq.host,
-	Path = P#statreq.path,
-	Method = P#statreq.method,
-	ParamStr = param_to_str(P#statreq.params),
+stat_req(Host, Path, Method, Params) ->
+	ParamStr = param_to_str(Params),
 	PathAndParams = string:concat(Path, ParamStr),
 
 	ibrowse:start_link(),
@@ -96,6 +144,51 @@ param_to_str([], ResultString, _) ->
 %
 % Configuration
 %
+
+%
+% @spec cfg_get_list_of_tests(Config) -> Tests
+% where
+%	Config = list()
+%	Tests = list()
+%
+cfg_get_list_of_tests(ConfigList) ->
+	[Tests || Tests <- ConfigList, is_record(Tests, test)].
+
+%
+% @spec cfg_get_request_entry(Config, EntryName) -> Entry
+% where
+%	Config = list()
+%	EntryName = string()
+%	Entry = request_record()
+%
+% @todo Maybe it would be better to look if the entry was found.
+%
+cfg_get_request_entry(ConfigList, EntryName) ->
+	[Entry] = [E || E <- ConfigList, is_record(E, request), E#request.name == EntryName],
+	Entry.
+
+
+%
+% @toso remove
+%
+config_to_map_test() ->
+	Config = [
+			{var, "vHours", {integer, 0, 24}},
+			{var, "vMinutes", {integer, 0, 60}},
+			{var, "vFloatPercent", {float, 0.0, 1.0}},
+
+			{request, "req1", "http://maps.googleapis.com", "/maps/api/geocode/json", 
+				[{"address", "Berlin,Germany"}, {"sensor", "false"}], "", "", get},
+
+			{reply, "rep1",  [{status, 200}] },
+
+			{test, "test1", "req1", "rep1", []}
+		],
+
+	ListOfVars = [V || V <- Config, is_record(V, test)].
+	%ListOfSearchResult = [R || R = {var, "vMinutes", _Type} <- Config].
+
+
 varlist_to_map_test() ->
 	L = [
 			{var, "vHours", {integer, 0, 24}},
