@@ -68,13 +68,27 @@ quickcheck_test() ->
 run_tests(Config, [Test | OtherTests]) ->
 	io:format("Run Test ~p ~n", [Test#test.name]),
 
+	try cfg_get_request_entry(Config, Test#test.request_name) of
+		N -> ReqEntry = N
+	catch
+		_:_ -> 
+			Trace = erlang:get_stacktrace(),
+			Reason = {badarg, string:format("processing ~p: missing request entry ~p", [Test#test.name, Test#test.request_name])},
+			erlang:raise(error, Reason, Trace)
+	end,
 	io:format("    Send Request ~p ~n", [Test#test.request_name]),
-	ReqEntry = cfg_get_request_entry(Config, Test#test.request_name),
-	io:format("    Request: ~n~p~n", [ReqEntry]),
-	Res = stat_req(ReqEntry#request.host, ReqEntry#request.path, ReqEntry#request.method, ReqEntry#request.params),
+	io:format("    Request Content: ~n~p~n", [ReqEntry]),
+	ServerReply = stat_req(ReqEntry#request.host, ReqEntry#request.path, ReqEntry#request.method, ReqEntry#request.params),
 	
+	try cfg_get_reply_entry(Config, Test#test.reply_name) of
+		N -> RepEntry = N
+	catch
+		_:_ -> 
+			Trace = erlang:get_stacktrace(),
+			Reason = {badarg, string:format("processing ~p: missing reply entry ~p", [Test#test.name, Test#test.reply_name])},
+			erlang:raise(error, Reason, Trace)
+	end,
 	io:format("    Reply Rule ~p ~n", [Test#test.reply_name]).
-
 
 
 %
@@ -165,6 +179,19 @@ cfg_get_list_of_tests(ConfigList) ->
 %
 cfg_get_request_entry(ConfigList, EntryName) ->
 	[Entry] = [E || E <- ConfigList, is_record(E, request), E#request.name == EntryName],
+	Entry.
+
+%
+% @spec cfg_get_reply_entry(Config, EntryName) -> Entry
+% where
+%	Config = list()
+%	EntryName = string()
+%	Entry = reply_record()
+%
+% @todo Maybe it would be better to look if the entry was found.
+%
+cfg_get_reply_entry(ConfigList, EntryName) ->
+	[Entry] = [E || E <- ConfigList, is_record(E, reply), E#reply.name == EntryName],
 	Entry.
 
 
@@ -279,3 +306,21 @@ insert_value(Value, {Key, {?TYPEMARKER, _, _}}) ->
 	{Key, Value}.
 	
 
+%
+%
+%
+m_test() ->
+
+	
+	proper:quickcheck(measure("Der Titel", [2, 30, 60], mprop_test())).
+
+mprop_test() ->
+	F = fun (Input) -> 
+		%io:format("Input: ~p~n", [Input]),
+		true==true
+		end,
+	io:format("hi~n"),
+
+    proper:with_title("hello"),
+	
+	?FORALL(V, {integer(10, 20), bool()}, F(V)).
