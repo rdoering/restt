@@ -51,7 +51,11 @@ quickcheck_test() ->
 
 			{reply, "rep1",  [{status, 200}] },
 
-			{test, "test1", "req1", "rep1", 100}
+			{test, "test1", "req1", "rep1", 100},
+			{test, "test2", "req2", "rep1", 100},
+			{test, "test3", "req1", "rep2", 100},
+			{test, "test4", "req2", "rep2", 100},
+			{test, "test5", "req1", "rep1", 100}
 		],
 	quickcheck(Config).
 
@@ -59,45 +63,52 @@ quickcheck_test() ->
 %
 % Go step by step through all tests
 %
-% @spec run_tests(Config, Tests) -> ok | ???
+% @spec run_tests(Config, Tests) -> ok
 % where
 %	Config = list()
 %	Tests = list()
 %	ok = atom()
 %
+run_tests(Config, []) ->
+	ok;
 run_tests(Config, [Test | OtherTests]) ->
 	io:format("Run Test ~p ~n", [Test#test.name]),
-
-	try cfg_get_request_entry(Config, Test#test.request_name) of
-		N -> ReqEntry = N
-	catch
-		_:_ -> 
-			Trace = erlang:get_stacktrace(),
-			Reason = {badarg, string:format("processing ~p: missing request entry ~p", [Test#test.name, Test#test.request_name])},
-			erlang:raise(error, Reason, Trace)
-	end,
 	io:format("    Send Request ~p ~n", [Test#test.request_name]),
-	io:format("    Request Content: ~n~p~n", [ReqEntry]),
-	ServerReply = stat_req(ReqEntry#request.host, ReqEntry#request.path, ReqEntry#request.method, ReqEntry#request.params),
-	
-	try cfg_get_reply_entry(Config, Test#test.reply_name) of
-		N -> RepEntry = N
-	catch
-		_:_ -> 
-			Trace = erlang:get_stacktrace(),
-			Reason = {badarg, string:format("processing ~p: missing reply entry ~p", [Test#test.name, Test#test.reply_name])},
-			erlang:raise(error, Reason, Trace)
+	io:format("    Reply Rule ~p ~n", [Test#test.reply_name]),
+
+	%
+	% @todo
+	% Is this the best way to implement that?
+	% if func1() failed
+	%	return error
+	% if func2() failed
+	% 	return error
+	% return ok
+	%
+	case cfg_get_request_entry(Config, Test#test.request_name) of
+		{error} -> 
+			io:format("    Warning: missing request entry ~p~n", [Test#test.request_name]);
+		{ok, ReqEntry} ->
+			%io:format("    Request Content: ~n~p~n", [ReqEntry]),
+			ServerReply = stat_req(ReqEntry#request.host, ReqEntry#request.path, ReqEntry#request.method, ReqEntry#request.params),
+			
+			case cfg_get_reply_entry(Config, Test#test.reply_name) of
+				{error} ->
+					io:format("    Warning: missing reply entry ~p~n", [Test#test.reply_name]);
+				{ok, RepEntry} ->
+					evaluate_server_reply()
+			end
+
 	end,
-	io:format("    Reply Rule ~p ~n", [Test#test.reply_name]).
+	run_tests(Config, OtherTests).
 
 
+
 %
 %
 %
-run_test() ->
-	A = 12,
-	B = 32,
-	?assert(A < B).
+evaluate_server_reply() ->
+	not_implemented_yet.
 
 %
 % Request for http://maps.googleapis.com/maps/api/geocode/json?address=Berlin,Germany&sensor=false
@@ -169,30 +180,42 @@ cfg_get_list_of_tests(ConfigList) ->
 	[Tests || Tests <- ConfigList, is_record(Tests, test)].
 
 %
-% @spec cfg_get_request_entry(Config, EntryName) -> Entry
+% @spec cfg_get_request_entry(Config, EntryName) -> {ok, Entry} | {error}
 % where
 %	Config = list()
 %	EntryName = string()
 %	Entry = request_record()
-%
-% @todo Maybe it would be better to look if the entry was found.
+%	ok = atom()
+%	error = atom()
 %
 cfg_get_request_entry(ConfigList, EntryName) ->
-	[Entry] = [E || E <- ConfigList, is_record(E, request), E#request.name == EntryName],
-	Entry.
+	case
+		[E || E <- ConfigList, is_record(E, request), E#request.name == EntryName] 
+	of
+		[Entry] -> 
+			{ok, Entry}; 
+		[] -> 
+			{error}
+	end.
 
 %
-% @spec cfg_get_reply_entry(Config, EntryName) -> Entry
+% @spec cfg_get_reply_entry(Config, EntryName) -> {ok, Entry} | {error}
 % where
 %	Config = list()
 %	EntryName = string()
-%	Entry = reply_record()
-%
-% @todo Maybe it would be better to look if the entry was found.
+%	Entry = request_record()
+%	ok = atom()
+%	error = atom()
 %
 cfg_get_reply_entry(ConfigList, EntryName) ->
-	[Entry] = [E || E <- ConfigList, is_record(E, reply), E#reply.name == EntryName],
-	Entry.
+	case
+		[E || E <- ConfigList, is_record(E, reply), E#reply.name == EntryName]
+	of
+		[Entry] -> 
+			{ok, Entry} ;
+		[] ->
+			{error}
+	end.
 
 
 %
