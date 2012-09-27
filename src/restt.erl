@@ -78,7 +78,7 @@ run_tests(Config, [Test | OtherTests]) ->
 
 	%
 	% @todo
-	% Is this the best way to implement that?
+	% Is that the best way?
 	% if func1() failed
 	%	return error
 	% if func2() failed
@@ -96,19 +96,42 @@ run_tests(Config, [Test | OtherTests]) ->
 				{error} ->
 					io:format("    Warning: missing reply entry ~p~n", [Test#test.reply_name]);
 				{ok, RepEntry} ->
-					evaluate_server_reply()
+					%
+					% @todo here comes the proper loog
+					%
+					case evaluate_server_reply(RepEntry#reply.match_list, ServerReply) of
+						ok ->
+							io:format("    Result: Passed~n");
+						FailedReason ->
+							io:format("    Result: Failed (~p)~n", [FailedReason])
+					end
 			end
 
 	end,
 	run_tests(Config, OtherTests).
 
 
+%
+%
+%
+evaluate_server_reply([], _ServerReply) ->
+	ok;
+evaluate_server_reply([Condition | ConditionList], ServerReply) ->
+	case evaluate_server_reply(Condition, ServerReply) of
+		ok ->
+			evaluate_server_reply(ConditionList, ServerReply);
+		FailedReason ->
+			FailedReason
+	end;
+evaluate_server_reply({status, Num}, {ok, Status, _ResponseHeaders, _ResponseBody}) ->
+	{StatusInteger, _} = string:to_integer(Status),
+	case Num of
+		StatusInteger ->
+			ok;
+		_Else ->
+			{failed, status, Num, StatusInteger}
+	end.
 
-%
-%
-%
-evaluate_server_reply() ->
-	not_implemented_yet.
 
 %
 % Request for http://maps.googleapis.com/maps/api/geocode/json?address=Berlin,Germany&sensor=false
@@ -333,8 +356,6 @@ insert_value(Value, {Key, {?TYPEMARKER, _, _}}) ->
 %
 %
 m_test() ->
-
-	
 	proper:quickcheck(measure("Der Titel", [2, 30, 60], mprop_test())).
 
 mprop_test() ->
