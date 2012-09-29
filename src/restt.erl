@@ -29,6 +29,10 @@
 -record(reply, {name, match_list}).
 -record(test, {name, request_name, reply_name, iter}).
 
+-record(status, {num}).
+-record(header, {kv_list}).
+-record(jbody, {json_dict}).
+
 % Storages for lists of variables, requests, replies and tests
 -record(storage, {vars, requests, replies, tests}).
 
@@ -123,6 +127,10 @@ evaluate_server_reply([Condition | ConditionList], ServerReply) ->
 		FailedReason ->
 			FailedReason
 	end;
+evaluate_server_reply({header, Header}, {ok, _Status, ResponseHeaders, _ResponseBody}) ->
+	not_inplemented_yet;
+evaluate_server_reply({body, Body}, {ok, _Status, _ResponseHeaders, ResponseBody}) ->
+	not_implemented_yet;
 evaluate_server_reply({status, Num}, {ok, Status, _ResponseHeaders, _ResponseBody}) ->
 	{StatusInteger, _} = string:to_integer(Status),
 	case Num of
