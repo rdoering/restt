@@ -25,15 +25,13 @@
 % @todo don't use an record, usr 
 -record(statreq, {host, path, params, method, header, body}).
 
+-record(var, {name, type, def}).
 -record(request, {name, host, path, params, method, header, body}).
 -record(reply, {name, match_list}).
 -record(test, {name, request_name, reply_name, iter}).
 
--record(status, {num}).
--record(header, {kv_list}).
--record(jbody, {json_dict}).
-
 % Storages for lists of variables, requests, replies and tests
+% @todo remove
 -record(storage, {vars, requests, replies, tests}).
 
 
@@ -53,7 +51,57 @@ quickcheck_test() ->
 			{request, "req1", "http://maps.googleapis.com", "/maps/api/geocode/json", 
 				[{"address", "Berlin,Germany"}, {"sensor", "false"}], get, "", ""},
 
-			{reply, "rep1",  [{status, 200}] },
+			{reply, 
+				"rep1",  
+				[	{status, 200},
+					{header_part, 
+						[	{"Content-Type","application/json; charset=UTF-8"},
+							%{"Date","Sun, 30 Sep 2012 14:24:30 GMT"},
+							%{"Expires","Mon, 01 Oct 2012 14:24:30 GMT"},
+							{"Cache-Control","public, max-age=86400"},
+							{"Vary","Accept-Language"},
+							{"Server","mafe"},
+							{"X-XSS-Protection","1; mode=block"},
+							{"X-Frame-Options","SAMEORIGIN"},
+							{"Transfer-Encoding","chunked"}]},
+					{json_body, 
+						{obj,[{"results",
+		   				[{obj,[{"address_components",
+				   				[{obj,[{"long_name",<<"Berlin">>},
+						  				{"short_name",<<"Berlin">>},
+						  				{"types",[<<"locality">>,<<"political">>]}]},
+									{obj,[{"long_name",<<"Berlin">>},
+						  				{"short_name",<<"Berlin">>},
+						  				{"types",
+						   				[<<"administrative_area_level_1">>,
+											<<"political">>]}]},
+									{obj,[{"long_name",<<"Germany">>},
+						  				{"short_name",<<"DE">>},
+						  				{"types",[<<"country">>,<<"political">>]}]}]},
+				  				{"formatted_address",<<"Berlin, Germany">>},
+				  				{"geometry",
+				   				{obj,[{"bounds",
+						  				{obj,[{"northeast",
+								 				{obj,[{"lat",52.6754542},
+									   				{"lng",13.7611176}]}},
+												{"southwest",
+								 				{obj,[{"lat",52.33962959999999},
+									   				{"lng",13.0911663}]}}]}},
+						 				{"location",
+						  				{obj,[{"lat",52.519171},{"lng",13.4060912}]}},
+						 				{"location_type",<<"APPROXIMATE">>},
+						 				{"viewport",
+						  				{obj,[{"northeast",
+								 				{obj,[{"lat",52.6754542},
+									   				{"lng",13.7611176}]}},
+												{"southwest",
+								 				{obj,[{"lat",52.33962959999999},
+									   				{"lng",13.0911663}]}}]}}]}},
+				  				{"types",[<<"locality">>,<<"political">>]}]}]},
+		  				{"status",<<"OK">>}]}
+}
+				] 
+			},
 
 			{test, "test1", "req1", "rep1", 100},
 			{test, "test2", "req2", "rep1", 100},
@@ -116,7 +164,11 @@ run_tests(Config, [Test | OtherTests]) ->
 
 
 %
-%
+% @spec evaluate_server_reply(ConditionList, ServerReply) -> Result
+% where
+% 	ConditionList = {header::atom(), Header::list_of_key_value_tupels()} | {jbody::atom(), Body::rfc4627_oj()} | {status::atom(), Num:integer()}
+%	ServerReply =  {ok:atom(), Status::string(), ResponseHeaders::list_of_key_value_tupels(), ResponseBody::json_string()}
+%	Result = ok | {failed::atom(), What::atom(), Expected, RealResponse}
 %
 evaluate_server_reply([], _ServerReply) ->
 	ok;
@@ -127,10 +179,33 @@ evaluate_server_reply([Condition | ConditionList], ServerReply) ->
 		FailedReason ->
 			FailedReason
 	end;
-evaluate_server_reply({header, Header}, {ok, _Status, ResponseHeaders, _ResponseBody}) ->
-	not_inplemented_yet;
-evaluate_server_reply({body, Body}, {ok, _Status, _ResponseHeaders, ResponseBody}) ->
-	not_implemented_yet;
+evaluate_server_reply({header_exact, Headers}, {ok, _Status, ResponseHeaders, _ResponseBody}) ->
+	HeadersSorted=lists:sort(Headers),
+	ResponseHeadersSorted=lists:sort(ResponseHeaders),
+	case HeadersSorted of
+		ResponseHeadersSorted ->
+			ok;
+		_Else ->
+			{failed, header, HeadersSorted, ResponseHeadersSorted}
+	end;
+evaluate_server_reply({header_part, Headers}, {ok, _Status, ResponseHeaders, _ResponseBody}) ->
+	Members = [X||X<-Headers, lists:member(X,ResponseHeaders)],
+	MembersCount = length(Members),
+	HeadersCount = length(Headers),
+	case MembersCount of
+		HeadersCount ->
+			ok;
+		_Else ->
+			{failed, header, Headers, ResponseHeaders}
+	end;
+evaluate_server_reply({json_body, Body}, {ok, _Status, _ResponseHeaders, ResponseBody}) ->
+	{ok, ResponseBodyJson, _} = rfc4627:decode(ResponseBody),
+	case ResponseBodyJson of
+		Body ->
+			ok;
+		_Else ->
+			{failed, jbody, Body, ResponseBodyJson}
+	end;
 evaluate_server_reply({status, Num}, {ok, Status, _ResponseHeaders, _ResponseBody}) ->
 	{StatusInteger, _} = string:to_integer(Status),
 	case Num of
@@ -250,7 +325,7 @@ cfg_get_reply_entry(ConfigList, EntryName) ->
 
 
 %
-% @toso remove
+% @todo remove
 %
 config_to_map_test() ->
 	Config = [
@@ -373,6 +448,6 @@ mprop_test() ->
 		end,
 	io:format("hi~n"),
 
-    proper:with_title("hello"),
+	proper:with_title("hello"),
 	
 	?FORALL(V, {integer(10, 20), bool()}, F(V)).
