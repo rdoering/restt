@@ -4,7 +4,6 @@
 
 -module(restt).
 
--include_lib("ibrowse/include/ibrowse.hrl").
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
@@ -15,7 +14,6 @@
 	quickcheck/1,
 	param_to_str/3,
 	param_to_str/1,
-	start_link/0,
 	prop_test/1,
 	test1/0
 	]).
@@ -39,6 +37,8 @@
 % Run REST test
 %
 quickcheck(Config) ->
+	application:start(sasl),
+	application:start(ibrowse),
 	ListOfTests = cfg_get_list_of_tests(Config),
 	run_tests(Config, ListOfTests).
 
@@ -234,11 +234,6 @@ stat_req_test() ->
 	{Rc, _State, _Header, _Body} = Res,
 	?assert( Rc == ok).
 
-%
-%
-% @ todo Add state to check if ibrowse was initialized before.
-start_link() ->
-	ibrowse:start_link().
 
 %
 % @todo implement all attr. and dont use a record.
@@ -246,8 +241,6 @@ start_link() ->
 stat_req(Host, Path, Method, Params) ->
 	ParamStr = param_to_str(Params),
 	PathAndParams = string:concat(Path, ParamStr),
-
-	ibrowse:start_link(),
 	ibrowse:send_req(string:concat(Host, PathAndParams), [], Method).
 
 

@@ -1,19 +1,13 @@
-CC := erlc
+all: dependencies build
 
-ERL_OUTDIR := ./ebin/
-ERL_SRC    := $(wildcard src/*.erl)
-ERL_OBJ    := $(patsubst src/%.erl,ebin/%.beam,${ERL_SRC})
-all: build
+dependencies:
+	rebar get-deps
 
-build: $(ERL_OBJ)
-
-ebin/%.beam: src/%.erl
-	$(CC) -o $(ERL_OUTDIR) $<
-
+build:
+	rebar compile
 
 clean:
-	rm -v $(ERL_OBJ)
+	rebar clear
 
 run:
-	cd src && erl 
-
+	erl -pz ebin/ deps/*/ebin
