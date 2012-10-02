@@ -2,3 +2,5 @@
 doc/*.html
 doc/edoc-info
 
+ebin
+deps
