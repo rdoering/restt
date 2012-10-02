@@ -1,14 +1,14 @@
 
 
 @author Robert Doering
-@version 1.0.0
-@title RT - REST Test
-@doc `RT` is a lib for testing REST-interfaces. 'RT'
+@version 0.0.1
+@title RESTt - REST Test
+@doc RESTt is a lib for testing REST-interfaces.
 
 == Test ==
 
-Hier steht ein Text.
+Text1
 
 === Sub ===
 
-Und hier steht auch etwas.
+Text2

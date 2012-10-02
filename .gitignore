@@ -1,4 +1,5 @@
 *.beam
+*~
 doc/*.html
 doc/edoc-info
 

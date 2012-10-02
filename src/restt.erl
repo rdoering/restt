@@ -1,6 +1,6 @@
 % RESTt - REST Test Library
 %
-% @author Robert Döring
+% @author Robert Doering
 
 -module(restt).
 
@@ -119,7 +119,7 @@ quickcheck_test() ->
 % where
 %	Config = list()
 %	Tests = list()
-%	ok = atom()
+% @end
 %
 run_tests(Config, []) ->
 	ok;
@@ -163,13 +163,16 @@ run_tests(Config, [Test | OtherTests]) ->
 	run_tests(Config, OtherTests).
 
 
-%
-% @spec evaluate_server_reply(ConditionList, ServerReply) -> Result
-% where
-% 	ConditionList = {header::atom(), Header::list_of_key_value_tupels()} | {jbody::atom(), Body::rfc4627_oj()} | {status::atom(), Num:integer()}
-%	ServerReply =  {ok:atom(), Status::string(), ResponseHeaders::list_of_key_value_tupels(), ResponseBody::json_string()}
-%	Result = ok | {failed::atom(), What::atom(), Expected, RealResponse}
-%
+%%
+%% @doc Evaluate response from server.
+%%
+%% @spec evaluate_server_reply(ConditionList, ServerReply) -> Result
+%% where
+%% 	ConditionList = {header, Header::list_of_key_value_tupels()} | {jbody, Body::rfc4627_oj()} | {status, Num::integer()}
+%%	ServerReply =  {ok:atom(), Status::string(), ResponseHeaders::list_of_key_value_tupels(), ResponseBody::json_string()}
+%%	Result = ok | {failed, What::kind_as_atom(), expected(), realResponse()}
+%% @end
+%% 
 evaluate_server_reply([], _ServerReply) ->
 	ok;
 evaluate_server_reply([Condition | ConditionList], ServerReply) ->
@@ -284,8 +287,6 @@ cfg_get_list_of_tests(ConfigList) ->
 %	Config = list()
 %	EntryName = string()
 %	Entry = request_record()
-%	ok = atom()
-%	error = atom()
 %
 cfg_get_request_entry(ConfigList, EntryName) ->
 	case
@@ -303,8 +304,6 @@ cfg_get_request_entry(ConfigList, EntryName) ->
 %	Config = list()
 %	EntryName = string()
 %	Entry = request_record()
-%	ok = atom()
-%	error = atom()
 %
 cfg_get_reply_entry(ConfigList, EntryName) ->
 	case
