@@ -13,3 +13,6 @@ clean:
 
 run:
 	erl -pz ebin/ deps/*/ebin
+
+run-insrc:
+	cd src;	erl -pz ../deps/*/ebin
