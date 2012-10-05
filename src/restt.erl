@@ -48,8 +48,10 @@ quickcheck_test() ->
 	Vars = [{var, "vHours", {integer, 0, 24}},
 			{var, "vMinutes", {integer, 0, 60}},
 			{var, "vFloatPercent", {float, 0.0, 1.0}}],
+
 	Requests = [{request, "req1", "http://maps.googleapis.com", "/maps/api/geocode/json", 
-				[{"address", "Berlin,Germany"}, {"sensor", "false"}], get, "", ""}],
+				[{"address", "Berlin,Germany"}, {"sensor", "false"}], get, undefined, undefined}],
+
 	Replies = [{reply, 
 				"rep1",  
 				[	{status, 200},
@@ -101,6 +103,7 @@ quickcheck_test() ->
 					}
 				] 
 			}],
+			
 	Tests = [{test, "test1", "req1", "rep1", 100},
 			{test, "test2", "req2", "rep1", 100},
 			{test, "test3", "req1", "rep2", 100},
@@ -227,8 +230,8 @@ stat_req_test() ->
 		params=[{"address", "Berlin,Germany"}, 
 				{"sensor", "false"}], 
 		method=get, 
-		header="", 
-		body=""},
+		header=undefined, 
+		body=undefined},
 
 	io:format("Request: ~n~p~n", [A]),
 	Res = stat_req(A#request.host, A#request.path, A#request.method, A#request.params),
