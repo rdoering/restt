@@ -18,6 +18,10 @@
 	test1/0
 	]).
 
+
+%
+-record(resttcfg, {var_list = [], req_list = [], rep_list = [], test_list = []}).
+
 % Record for static request.
 % @todo export into a header file
 % @todo don't use an record, usr 
@@ -28,30 +32,25 @@
 -record(reply, {name, match_list}).
 -record(test, {name, request_name, reply_name, iter}).
 
-% Storages for lists of variables, requests, replies and tests
-% @todo remove
--record(storage, {vars, requests, replies, tests}).
-
 
 %
 % Run REST test
 %
+% @todo: Write a spec of config
+%
 quickcheck(Config) ->
-	application:start(sasl),
+	%application:start(sasl),
 	application:start(ibrowse),
-	ListOfTests = cfg_get_list_of_tests(Config),
+	ListOfTests = Config#resttcfg.test_list,
 	run_tests(Config, ListOfTests).
 
 quickcheck_test() ->
-	Config = [
-			{var, "vHours", {integer, 0, 24}},
+	Vars = [{var, "vHours", {integer, 0, 24}},
 			{var, "vMinutes", {integer, 0, 60}},
-			{var, "vFloatPercent", {float, 0.0, 1.0}},
-
-			{request, "req1", "http://maps.googleapis.com", "/maps/api/geocode/json", 
-				[{"address", "Berlin,Germany"}, {"sensor", "false"}], get, "", ""},
-
-			{reply, 
+			{var, "vFloatPercent", {float, 0.0, 1.0}}],
+	Requests = [{request, "req1", "http://maps.googleapis.com", "/maps/api/geocode/json", 
+				[{"address", "Berlin,Germany"}, {"sensor", "false"}], get, "", ""}],
+	Replies = [{reply, 
 				"rep1",  
 				[	{status, 200},
 					{header_part, 
@@ -66,7 +65,7 @@ quickcheck_test() ->
 							{"Transfer-Encoding","chunked"}]},
 					{json_body, 
 						{obj,[{"results",
-		   				[{obj,[{"address_components",
+		   				 [{obj,[{"address_components",
 				   				[{obj,[{"long_name",<<"Berlin">>},
 						  				{"short_name",<<"Berlin">>},
 						  				{"types",[<<"locality">>,<<"political">>]}]},
@@ -99,16 +98,16 @@ quickcheck_test() ->
 									   				{"lng",13.0911663}]}}]}}]}},
 				  				{"types",[<<"locality">>,<<"political">>]}]}]},
 		  				{"status",<<"OK">>}]}
-}
+					}
 				] 
-			},
-
-			{test, "test1", "req1", "rep1", 100},
+			}],
+	Tests = [{test, "test1", "req1", "rep1", 100},
 			{test, "test2", "req2", "rep1", 100},
 			{test, "test3", "req1", "rep2", 100},
 			{test, "test4", "req2", "rep2", 100},
-			{test, "test5", "req1", "rep1", 100}
-		],
+			{test, "test5", "req1", "rep1", 100}],
+
+	Config = #resttcfg{var_list=Vars, req_list=Requests, rep_list=Replies, test_list=Tests},
 	quickcheck(Config).
 
 
@@ -239,7 +238,7 @@ stat_req_test() ->
 
 
 %
-% @todo implement all attr. and dont use a record.
+% @todo implement all attr.
 %
 stat_req(Host, Path, Method, Params) ->
 	ParamStr = param_to_str(Params),
@@ -273,24 +272,16 @@ param_to_str([], ResultString, _) ->
 %
 
 %
-% @spec cfg_get_list_of_tests(Config) -> Tests
-% where
-%	Config = list()
-%	Tests = list()
-%
-cfg_get_list_of_tests(ConfigList) ->
-	[Tests || Tests <- ConfigList, is_record(Tests, test)].
-
-%
 % @spec cfg_get_request_entry(Config, EntryName) -> {ok, Entry} | {error}
 % where
-%	Config = list()
+%	Config = resttcfg()
 %	EntryName = string()
 %	Entry = request_record()
 %
-cfg_get_request_entry(ConfigList, EntryName) ->
+cfg_get_request_entry(Config, EntryName) ->
+	
 	case
-		[E || E <- ConfigList, is_record(E, request), E#request.name == EntryName] 
+		[E || E <- Config#resttcfg.req_list, is_record(E, request), E#request.name == EntryName] 
 	of
 		[Entry] -> 
 			{ok, Entry}; 
@@ -301,13 +292,13 @@ cfg_get_request_entry(ConfigList, EntryName) ->
 %
 % @spec cfg_get_reply_entry(Config, EntryName) -> {ok, Entry} | {error}
 % where
-%	Config = list()
+%	Config = resttcfg()
 %	EntryName = string()
 %	Entry = request_record()
 %
-cfg_get_reply_entry(ConfigList, EntryName) ->
+cfg_get_reply_entry(Config, EntryName) ->
 	case
-		[E || E <- ConfigList, is_record(E, reply), E#reply.name == EntryName]
+		[E || E <- Config#resttcfg.rep_list, is_record(E, reply), E#reply.name == EntryName]
 	of
 		[Entry] -> 
 			{ok, Entry} ;
@@ -316,54 +307,6 @@ cfg_get_reply_entry(ConfigList, EntryName) ->
 	end.
 
 
-%
-% @todo remove
-%
-config_to_map_test() ->
-	Config = [
-			{var, "vHours", {integer, 0, 24}},
-			{var, "vMinutes", {integer, 0, 60}},
-			{var, "vFloatPercent", {float, 0.0, 1.0}},
-
-			{request, "req1", "http://maps.googleapis.com", "/maps/api/geocode/json", 
-				[{"address", "Berlin,Germany"}, {"sensor", "false"}], "", "", get},
-
-			{reply, "rep1",  [{status, 200}] },
-
-			{test, "test1", "req1", "rep1", []}
-		],
-
-	ListOfVars = [V || V <- Config, is_record(V, test)].
-	%ListOfSearchResult = [R || R = {var, "vMinutes", _Type} <- Config].
-
-
-varlist_to_map_test() ->
-	L = [
-			{var, "vHours", {integer, 0, 24}},
-			{var, "vMinutes", {integer, 0, 60}},
-			{var, "vFloatPercent", {float, 0.0, 1.0}}
-		],
-	Ets = varlist_to_map(L),
-	?assert(length(ets:lookup(Ets, "vHours")) == 1),
-	?assert(length(ets:lookup(Ets, "vHours2")) == 0),
-	?assert(length(ets:lookup(Ets, "vMinutes")) == 1),
-	?assert(length(ets:lookup(Ets, "vFloatPercent")) == 1),
-	?assert(length(ets:lookup(Ets, "nix")) == 0),
-	Ets.
-
-
-%
-% Reads inall variables into a ETS and return this.
-%
-varlist_to_map(VarList) ->
-	Storage = ets:new(restt_vars, []),
-	varlist_to_map(Storage, VarList).
-
-varlist_to_map(Storage, [{var, Name, Content} | Rest]) ->
-	ets:insert(Storage, {Name, Content}),
-	varlist_to_map(Storage, Rest);	
-varlist_to_map(Storage, []) ->
-	Storage.
 
 %
 % Proper testing
