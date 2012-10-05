@@ -39,7 +39,7 @@
 % @todo: Write a spec of config
 %
 quickcheck(Config) ->
-	%application:start(sasl),
+	application:start(sasl),
 	application:start(ibrowse),
 	ListOfTests = Config#resttcfg.test_list,
 	run_tests(Config, ListOfTests).
