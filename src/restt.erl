@@ -66,16 +66,14 @@ quickcheck_test() ->
 							{"X-Frame-Options","SAMEORIGIN"},
 							{"Transfer-Encoding","chunked"}]},
 					{json_body, 
-						{obj,[{"results",
+					{	obj,[{"results",
 		   				 [{obj,[{"address_components",
 				   				[{obj,[{"long_name",<<"Berlin">>},
 						  				{"short_name",<<"Berlin">>},
 						  				{"types",[<<"locality">>,<<"political">>]}]},
 									{obj,[{"long_name",<<"Berlin">>},
-						  				{"short_name",<<"Berlin">>},
-						  				{"types",
-						   				[<<"administrative_area_level_1">>,
-											<<"political">>]}]},
+						  				  {"short_name",<<"Berlin">>},
+						  				  {"types", [<<"administrative_area_level_1">>, <<"political">>]}]},
 									{obj,[{"long_name",<<"Germany">>},
 						  				{"short_name",<<"DE">>},
 						  				{"types",[<<"country">>,<<"political">>]}]}]},
@@ -151,7 +149,7 @@ run_tests(Config, [Test | OtherTests]) ->
 					io:format("    Warning: missing reply entry ~p~n", [Test#test.reply_name]);
 				{ok, RepEntry} ->
 					%
-					% @todo here comes the proper loog
+					% @todo here comes the proper loop
 					%
 					case evaluate_server_reply(RepEntry#reply.match_list, ServerReply) of
 						ok ->
@@ -205,7 +203,7 @@ evaluate_server_reply({header_part, Headers}, {ok, _Status, ResponseHeaders, _Re
 	end;
 evaluate_server_reply({json_body, Body}, {ok, _Status, _ResponseHeaders, ResponseBody}) ->
 	{ok, ResponseBodyJson, _} = rfc4627:decode(ResponseBody),
-	case ResponseBodyJson of
+	case evaluate_json(Body, ResponseBodyJson) of
 		Body ->
 			ok;
 		_Else ->
@@ -220,6 +218,23 @@ evaluate_server_reply({status, Num}, {ok, Status, _ResponseHeaders, _ResponseBod
 			{failed, status, Num, StatusInteger}
 	end.
 
+evaluate_json([], []) ->
+    ok;
+evaluate_json([{obj, RepContent}], [{obj, RespContent}]) ->
+	evaluate_json(RepContent, RespContent);
+evaluate_json({obj, RepContent}, {obj, RespContent}) ->
+	evaluate_json(RepContent, RespContent);
+evaluate_json([{Key, RepValue}], [{Key, RespValue}]) ->
+    evaluate_json(RepValue, RespValue);
+evaluate_json([{Key, RepValue} | RepRest], [{Key, RespValue} | RespRest]) ->
+    case evaluate_json(RepValue, RespValue) of
+    	ok -> evaluate_json(RepRest, RespRest);
+    	_Else -> failed
+    end;
+evaluate_json(Value, Value) ->
+	ok;
+evaluate_json(_Reply, _Response) ->
+	failed.
 
 %
 % Request for http://maps.googleapis.com/maps/api/geocode/json?address=Berlin,Germany&sensor=false
