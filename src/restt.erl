@@ -25,9 +25,9 @@
 % Record for static request.
 % @todo export into a header file
 % @todo don't use an record, usr 
--record(statreq, {host, path, params, method, header, body}).
+%-record(statreq, {host, path, params, method, header, body}).
 
--record(var, {name, type, def}).
+-record(var, {name, type=undefined, def=undefined}).
 -record(request, {name, host, path, params, method, header, body}).
 -record(reply, {name, match_list}).
 -record(test, {name, request_name, reply_name, iter}).
@@ -121,7 +121,7 @@ quickcheck_test() ->
 %	Tests = list()
 % @end
 %
-run_tests(Config, []) ->
+run_tests(_Config, []) ->
 	ok;
 run_tests(Config, [Test | OtherTests]) ->
 	io:format("Run Test ~p ~n", [Test#test.name]),
@@ -151,7 +151,7 @@ run_tests(Config, [Test | OtherTests]) ->
 					%
 					% @todo here comes the proper loop
 					%
-					case evaluate_server_reply(RepEntry#reply.match_list, ServerReply) of
+					case evaluate_server_reply(Config, RepEntry#reply.match_list, ServerReply) of
 						ok ->
 							io:format("    Result: Passed~n");
 						FailedReason ->
@@ -173,16 +173,16 @@ run_tests(Config, [Test | OtherTests]) ->
 %%	Result = ok | {failed, What::kind_as_atom(), expected(), realResponse()}
 %% @end
 %% 
-evaluate_server_reply([], _ServerReply) ->
+evaluate_server_reply(_Config, [], _ServerReply) ->
 	ok;
-evaluate_server_reply([Condition | ConditionList], ServerReply) ->
-	case evaluate_server_reply(Condition, ServerReply) of
+evaluate_server_reply(Config, [Condition | ConditionList], ServerReply) ->
+	case evaluate_server_reply(Config, Condition, ServerReply) of
 		ok ->
-			evaluate_server_reply(ConditionList, ServerReply);
+			evaluate_server_reply(Config, ConditionList, ServerReply);
 		FailedReason ->
 			FailedReason
 	end;
-evaluate_server_reply({header_exact, Headers}, {ok, _Status, ResponseHeaders, _ResponseBody}) ->
+evaluate_server_reply(_Config, {header_exact, Headers}, {ok, _Status, ResponseHeaders, _ResponseBody}) ->
 	HeadersSorted=lists:sort(Headers),
 	ResponseHeadersSorted=lists:sort(ResponseHeaders),
 	case HeadersSorted of
@@ -191,7 +191,7 @@ evaluate_server_reply({header_exact, Headers}, {ok, _Status, ResponseHeaders, _R
 		_Else ->
 			{failed, header, HeadersSorted, ResponseHeadersSorted}
 	end;
-evaluate_server_reply({header_part, Headers}, {ok, _Status, ResponseHeaders, _ResponseBody}) ->
+evaluate_server_reply(_Config, {header_part, Headers}, {ok, _Status, ResponseHeaders, _ResponseBody}) ->
 	Members = [X||X<-Headers, lists:member(X,ResponseHeaders)],
 	MembersCount = length(Members),
 	HeadersCount = length(Headers),
@@ -201,15 +201,15 @@ evaluate_server_reply({header_part, Headers}, {ok, _Status, ResponseHeaders, _Re
 		_Else ->
 			{failed, header, Headers, ResponseHeaders}
 	end;
-evaluate_server_reply({json_body, Body}, {ok, _Status, _ResponseHeaders, ResponseBody}) ->
+evaluate_server_reply(Config, {json_body, ExpectedReplyBody}, {ok, _Status, _ResponseHeaders, ResponseBody}) ->
 	{ok, ResponseBodyJson, _} = rfc4627:decode(ResponseBody),
-	case evaluate_json(Body, ResponseBodyJson) of
-		Body ->
+	case evaluate_json(Config, ExpectedReplyBody, ResponseBodyJson) of
+		ExpectedReplyBody ->
 			ok;
-		_Else ->
-			{failed, jbody, Body, ResponseBodyJson}
+		FailedReason -> 
+			FailedReason
 	end;
-evaluate_server_reply({status, Num}, {ok, Status, _ResponseHeaders, _ResponseBody}) ->
+evaluate_server_reply(_Config, {status, Num}, {ok, Status, _ResponseHeaders, _ResponseBody}) ->
 	{StatusInteger, _} = string:to_integer(Status),
 	case Num of
 		StatusInteger ->
@@ -218,23 +218,34 @@ evaluate_server_reply({status, Num}, {ok, Status, _ResponseHeaders, _ResponseBod
 			{failed, status, Num, StatusInteger}
 	end.
 
-evaluate_json([], []) ->
+
+evaluate_json(_Config, [],[]) ->
     ok;
-evaluate_json([{obj, RepContent}], [{obj, RespContent}]) ->
-	evaluate_json(RepContent, RespContent);
-evaluate_json({obj, RepContent}, {obj, RespContent}) ->
-	evaluate_json(RepContent, RespContent);
-evaluate_json([{Key, RepValue}], [{Key, RespValue}]) ->
-    evaluate_json(RepValue, RespValue);
-evaluate_json([{Key, RepValue} | RepRest], [{Key, RespValue} | RespRest]) ->
-    case evaluate_json(RepValue, RespValue) of
-    	ok -> evaluate_json(RepRest, RespRest);
-    	_Else -> failed
+evaluate_json(Config, {obj, ExpectedReply}, {obj, Reply}) ->
+    %io:format("Object:    ~p~n",[ExpectedReply]),
+    evaluate_json(Config, ExpectedReply, Reply);
+% Here we look for vars at the key.
+evaluate_json(Config, {#var{name=VarName}, ExpectedReplyValue}, {ReplyKey, ReplyValue}) ->
+    io:format("Var-Name for a Key:    ~p == ~p~n",[VarName, ReplyKey]),
+    evaluate_json(Config, ExpectedReplyValue, ReplyValue);
+evaluate_json(Config, {Key, ExpectedReplyValue}, {Key, ReplyValue}) when is_list(Key)->
+    %io:format("Key:    ~p ~n",[Key]),
+    evaluate_json(Config, ExpectedReplyValue, ReplyValue);
+evaluate_json(Config, [ExpectedReplyKeyValue | ExpectedReplyRest], [ReplyKeyValue | ReplyRest]) ->
+    %io:format("Listelem:    ~p~n",[ExpectedReplyKeyValue]),
+    case evaluate_json(Config, ExpectedReplyKeyValue, ReplyKeyValue) of
+        ok -> evaluate_json(Config, ExpectedReplyRest, ReplyRest);
+        FailedReason -> FailedReason
     end;
-evaluate_json(Value, Value) ->
+% Here we look for vars at the value.
+evaluate_json(_Config, #var{name=VarName}, ReplyValue) ->
+    io:format("Var-Name for a Value:    ~p == ~p~n",[VarName, ReplyValue]);
+evaluate_json(_Config, Value, Value) ->
+    %io:format("Single Value:    ~p~n",[Value]),
 	ok;
-evaluate_json(_Reply, _Response) ->
-	failed.
+evaluate_json(_Config, ExpectedReplyValue, ReplyValue) ->
+    {failed, jbody, ExpectedReplyValue, ReplyValue}.
+
 
 %
 % Request for http://maps.googleapis.com/maps/api/geocode/json?address=Berlin,Germany&sensor=false
@@ -395,7 +406,7 @@ m_test() ->
 	proper:quickcheck(measure("Der Titel", [2, 30, 60], mprop_test())).
 
 mprop_test() ->
-	F = fun (Input) -> 
+	F = fun (_Input) -> 
 		%io:format("Input: ~p~n", [Input]),
 		true==true
 		end,
