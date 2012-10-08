@@ -247,6 +247,108 @@ evaluate_json(_Config, ExpectedReplyValue, ReplyValue) ->
     {failed, jbody, ExpectedReplyValue, ReplyValue}.
 
 
+evaluate_json_test() ->
+	Vars = [{var, "vHours", {integer, 0, 24}},
+			{var, "vMinutes", {integer, 0, 60}},
+			{var, "vFloatPercent", {float, 0.0, 1.0}}],
+
+	Config = #resttcfg{var_list=Vars, req_list=undefined, rep_list=undefined, test_list=undefined},
+
+	ExpectedReply1 = { obj,[{"result", #var{name="Var1"}}]},
+	Reply1 = { obj,[{"result","super"}]},
+	?assertMatch(ok, evaluate_json(Config, ExpectedReply1, Reply1)),
+
+	ExpectedReply2 = { obj,[{#var{name="Var2"}, "super"}]},
+	Reply2 = { obj,[{"result","super"}]},
+	?assertMatch(ok, evaluate_json(Config, ExpectedReply2, Reply2)),
+
+	ExpectedReply3 = { obj,[{"time", #var{name="vHours"}}]},
+	Reply3 = { obj,[{"time","10"}]},
+	?assertMatch(ok, evaluate_json(Config, ExpectedReply3, Reply3)),
+
+	ExpectedReply4 = { obj,[{"time", #var{name="vHours"}}]},
+	Reply4 = { obj,[{"time","61"}]},
+	?assertMatch({failed, _, _, _}, evaluate_json(Config, ExpectedReply4, Reply4)),
+
+	ExpectedReply5 = { obj,[{"percent", #var{name="vFloatPercent"}}]},
+	Reply5 = { obj,[{"percent","0.121211234"}]},
+	?assertMatch(ok, evaluate_json(Config, ExpectedReply5, Reply5)),
+
+	ExpectedReply6 = { obj,[{"percent", #var{name="vFloatPercent"}}]},
+	Reply6 = { obj,[{"percent","1.021211234"}]},
+	?assertMatch({failed, _, _, _}, evaluate_json(Config, ExpectedReply6, Reply6)),
+
+	ExpectedReply={	obj,[{"results",
+		   				 [{obj,[{"address_components",
+				   				[{obj,[{"long_name",<<"Berlin">>},
+						  				{"short_name",<<"Berlin">>},
+						  				{"types",[<<"locality">>,<<"political">>]}]},
+									{obj,[{"long_name",<<"Berlin">>},
+						  				  {"short_name",<<"Berlin">>},
+						  				  {"types", [<<"administrative_area_level_1">>, <<"political">>]}]},
+									{obj,[{"long_name",<<"Germany">>},
+						  				{"short_name",<<"DE">>},
+						  				{"types",[<<"country">>,<<"political">>]}]}]},
+				  				{"formatted_address",<<"Berlin, Germany">>},
+				  				{"geometry",
+				   				{obj,[{"bounds",
+						  				{obj,[{"northeast",
+								 				{obj,[{"lat",52.6754542},
+									   				{"lng",13.7611176}]}},
+												{"southwest",
+								 				{obj,[{"lat",52.33962959999999},
+									   				{"lng",13.0911663}]}}]}},
+						 				{"location",
+						  				{obj,[{"lat",52.519171},{"lng",13.4060912}]}},
+						 				{"location_type",<<"APPROXIMATE">>},
+						 				{"viewport",
+						  				{obj,[{"northeast",
+								 				{obj,[{"lat",52.6754542},
+									   				{"lng",13.7611176}]}},
+												{"southwest",
+								 				{obj,[{"lat",52.33962959999999},
+									   				{"lng",13.0911663}]}}]}}]}},
+				  				{"types",[<<"locality">>,<<"political">>]}]}]},
+		  				{"status",<<"OK">>}]},
+
+	Reply = {	obj,[{"results",
+		   				 [{obj,[{"address_components",
+				   				[{obj,[{"long_name",<<"Berlin">>},
+						  				{"short_name",<<"Berlin">>},
+						  				{"types",[<<"locality">>,<<"political">>]}]},
+									{obj,[{"long_name",<<"Berlin">>},
+						  				  {"short_name",<<"Berlin">>},
+						  				  {"types", [<<"administrative_area_level_1">>, <<"political">>]}]},
+									{obj,[{"long_name",<<"Germany">>},
+						  				{"short_name",<<"DE">>},
+						  				{"types",[<<"country">>,<<"political">>]}]}]},
+				  				{"formatted_address",<<"Berlin, Germany">>},
+				  				{"geometry",
+				   				{obj,[{"bounds",
+						  				{obj,[{"northeast",
+								 				{obj,[{"lat",52.6754542},
+									   				{"lng",13.7611176}]}},
+												{"southwest",
+								 				{obj,[{"lat",52.33962959999999},
+									   				{"lng",13.0911663}]}}]}},
+						 				{"location",
+						  				{obj,[{"lat",52.519171},{"lng",13.4060912}]}},
+						 				{"location_type",<<"APPROXIMATE">>},
+						 				{"viewport",
+						  				{obj,[{"northeast",
+								 				{obj,[{"lat",52.6754542},
+									   				{"lng",13.7611176}]}},
+												{"southwest",
+								 				{obj,[{"lat",52.33962959999999},
+									   				{"lng",13.0911663}]}}]}}]}},
+				  				{"types",[<<"locality">>,<<"political">>]}]}]},
+		  				{"status",<<"OK">>}]},
+
+
+	?assert(evaluate_json(Config, ExpectedReply, Reply) == ok).
+
+
+
 %
 % Request for http://maps.googleapis.com/maps/api/geocode/json?address=Berlin,Germany&sensor=false
 %
