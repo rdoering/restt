@@ -226,7 +226,8 @@ evaluate_json(Config, {obj, ExpectedReply}, {obj, Reply}) ->
     evaluate_json(Config, ExpectedReply, Reply);
 % Here we look for vars at the key.
 evaluate_json(Config, {#var{name=VarName}, ExpectedReplyValue}, {ReplyKey, ReplyValue}) ->
-    io:format("Var-Name for a Key:    ~p == ~p~n",[VarName, ReplyKey]),
+    %io:format("Var-Name for a Key:    ~p == ~p~n",[VarName, ReplyKey]),
+    evaluate_var(Config, VarName, ReplyKey),
     evaluate_json(Config, ExpectedReplyValue, ReplyValue);
 evaluate_json(Config, {Key, ExpectedReplyValue}, {Key, ReplyValue}) when is_list(Key)->
     %io:format("Key:    ~p ~n",[Key]),
@@ -238,8 +239,9 @@ evaluate_json(Config, [ExpectedReplyKeyValue | ExpectedReplyRest], [ReplyKeyValu
         FailedReason -> FailedReason
     end;
 % Here we look for vars at the value.
-evaluate_json(_Config, #var{name=VarName}, ReplyValue) ->
-    io:format("Var-Name for a Value:    ~p == ~p~n",[VarName, ReplyValue]);
+evaluate_json(Config, #var{name=VarName}, ReplyValue) ->
+    %io:format("Var-Name for a Value:    ~p == ~p~n",[VarName, ReplyValue]),
+    evaluate_var(Config, VarName, ReplyValue);
 evaluate_json(_Config, Value, Value) ->
     %io:format("Single Value:    ~p~n",[Value]),
 	ok;
@@ -248,9 +250,11 @@ evaluate_json(_Config, ExpectedReplyValue, ReplyValue) ->
 
 
 evaluate_json_test() ->
-	Vars = [{var, "vHours", {integer, 0, 24}},
-			{var, "vMinutes", {integer, 0, 60}},
-			{var, "vFloatPercent", {float, 0.0, 1.0}}],
+	Vars = [#var{name="Var1", type=string, def=[]},
+			#var{name="Var2", type=string, def=[]},
+			#var{name="vHours", type=string, def=[{min, 0},{max, 24}]},
+			#var{name="vMinutes", type=string, def=[{min, 0},{max, 60}]},
+			#var{name="vFloatPercent", type=float, def=[{min, 0.0},{max, 1.0}]} ],
 
 	Config = #resttcfg{var_list=Vars, req_list=undefined, rep_list=undefined, test_list=undefined},
 
@@ -348,6 +352,17 @@ evaluate_json_test() ->
 	?assert(evaluate_json(Config, ExpectedReply, Reply) == ok).
 
 
+evaluate_var(Config, VarName, Pattern) ->
+	case cfg_get_var_entry(Config, VarName) of
+		{error} -> 
+			Msg = lists:flatten(io_lib:format("Variable ~p not declared.", [VarName])),
+			{failed, Msg};
+		
+		{ok, Entry} ->
+			io:format("Try to match ~p against ~p~n", [Entry, Pattern]),
+			ok
+	end.
+
 
 %
 % Request for http://maps.googleapis.com/maps/api/geocode/json?address=Berlin,Germany&sensor=false
@@ -437,6 +452,22 @@ cfg_get_reply_entry(Config, EntryName) ->
 			{error}
 	end.
 
+%
+% @spec cfg_get_var_entry(Config, EntryName) -> {ok, Entry} | {error}
+% where
+%	Config = resttcfg()
+%	EntryName = string()
+%	Entry = request_record()
+%
+cfg_get_var_entry(Config, EntryName) ->
+	case
+		[E || E <- Config#resttcfg.var_list, is_record(E, var), E#var.name == EntryName]
+	of
+		[Entry] -> 
+			{ok, Entry} ;
+		[] ->
+			{error}
+	end.
 
 
 %
