@@ -152,9 +152,9 @@ run_tests(Config, [Test | OtherTests]) ->
 					% @todo here comes the proper loop
 					%
 					case evaluate_server_reply(Config, RepEntry#reply.match_list, ServerReply) of
-						ok ->
+						{ok} ->
 							io:format("    Result: Passed~n");
-						FailedReason ->
+						{failed, FailedReason} ->
 							io:format("    Result: Failed (~p)~n", [FailedReason])
 					end
 			end
@@ -166,8 +166,9 @@ run_tests(Config, [Test | OtherTests]) ->
 %%
 %% @doc Evaluate response from server.
 %%
-%% @spec evaluate_server_reply(ConditionList, ServerReply) -> Result
+%% @spec evaluate_server_reply(Config, ConditionList, ServerReply) -> Result
 %% where
+%%  Config = config()
 %% 	ConditionList = {header, Header::list_of_key_value_tupels()} | {jbody, Body::rfc4627_oj()} | {status, Num::integer()}
 %%	ServerReply =  {ok:atom(), Status::string(), ResponseHeaders::list_of_key_value_tupels(), ResponseBody::json_string()}
 %%	Result = ok | {failed, What::kind_as_atom(), expected(), realResponse()}
@@ -187,9 +188,9 @@ evaluate_server_reply(_Config, {header_exact, Headers}, {ok, _Status, ResponseHe
 	ResponseHeadersSorted=lists:sort(ResponseHeaders),
 	case HeadersSorted of
 		ResponseHeadersSorted ->
-			ok;
+			{ok};
 		_Else ->
-			{failed, header, HeadersSorted, ResponseHeadersSorted}
+			{failed, [{missmatch, header_exact}, {expected, HeadersSorted}, {response, ResponseHeadersSorted}]}
 	end;
 evaluate_server_reply(_Config, {header_part, Headers}, {ok, _Status, ResponseHeaders, _ResponseBody}) ->
 	Members = [X||X<-Headers, lists:member(X,ResponseHeaders)],
@@ -197,30 +198,25 @@ evaluate_server_reply(_Config, {header_part, Headers}, {ok, _Status, ResponseHea
 	HeadersCount = length(Headers),
 	case MembersCount of
 		HeadersCount ->
-			ok;
+			{ok};
 		_Else ->
-			{failed, header, Headers, ResponseHeaders}
+			{failed, [{missmatch, header}, {expected, Headers}, {response, ResponseHeaders}]}
 	end;
 evaluate_server_reply(Config, {json_body, ExpectedReplyBody}, {ok, _Status, _ResponseHeaders, ResponseBody}) ->
 	{ok, ResponseBodyJson, _} = rfc4627:decode(ResponseBody),
-	case evaluate_json(Config, ExpectedReplyBody, ResponseBodyJson) of
-		ExpectedReplyBody ->
-			ok;
-		FailedReason -> 
-			FailedReason
-	end;
+	evaluate_json(Config, ExpectedReplyBody, ResponseBodyJson);
 evaluate_server_reply(_Config, {status, Num}, {ok, Status, _ResponseHeaders, _ResponseBody}) ->
 	{StatusInteger, _} = string:to_integer(Status),
 	case Num of
 		StatusInteger ->
-			ok;
+			{ok};
 		_Else ->
-			{failed, status, Num, StatusInteger}
+			{failed, [{missmatch, status}, {expected, Num}, {response, StatusInteger}]}
 	end.
 
 
 evaluate_json(_Config, [],[]) ->
-    ok;
+    {ok};
 evaluate_json(Config, {obj, ExpectedReply}, {obj, Reply}) ->
     %io:format("Object:    ~p~n",[ExpectedReply]),
     evaluate_json(Config, ExpectedReply, Reply);
@@ -246,41 +242,45 @@ evaluate_json(_Config, Value, Value) ->
     %io:format("Single Value:    ~p~n",[Value]),
 	ok;
 evaluate_json(_Config, ExpectedReplyValue, ReplyValue) ->
-    {failed, jbody, ExpectedReplyValue, ReplyValue}.
+    {failed, {jbody, ExpectedReplyValue, ReplyValue}}.
 
 
 evaluate_json_test() ->
 	Vars = [#var{name="Var1", type=string, def=[]},
 			#var{name="Var2", type=string, def=[]},
-			#var{name="vHours", type=string, def=[{min, 0},{max, 24}]},
-			#var{name="vMinutes", type=string, def=[{min, 0},{max, 60}]},
+			#var{name="vHours", type=integer, def=[{min, 0},{max, 24}]},
+			#var{name="vMinutes", type=integer, def=[{min, 0},{max, 60}]},
 			#var{name="vFloatPercent", type=float, def=[{min, 0.0},{max, 1.0}]} ],
 
 	Config = #resttcfg{var_list=Vars, req_list=undefined, rep_list=undefined, test_list=undefined},
 
+	ExpectedReply0 = { obj,[{"result", #var{name="Var0"}}]},
+	Reply0 = { obj,[{"result","super"}]},
+	?assertMatch({failed, _}, evaluate_json(Config, ExpectedReply0, Reply0)),
+	
 	ExpectedReply1 = { obj,[{"result", #var{name="Var1"}}]},
 	Reply1 = { obj,[{"result","super"}]},
-	?assertMatch(ok, evaluate_json(Config, ExpectedReply1, Reply1)),
+	?assertMatch({ok}, evaluate_json(Config, ExpectedReply1, Reply1)),
 
 	ExpectedReply2 = { obj,[{#var{name="Var2"}, "super"}]},
 	Reply2 = { obj,[{"result","super"}]},
-	?assertMatch(ok, evaluate_json(Config, ExpectedReply2, Reply2)),
+	?assertMatch({ok}, evaluate_json(Config, ExpectedReply2, Reply2)),
 
 	ExpectedReply3 = { obj,[{"time", #var{name="vHours"}}]},
-	Reply3 = { obj,[{"time","10"}]},
-	?assertMatch(ok, evaluate_json(Config, ExpectedReply3, Reply3)),
+	Reply3 = { obj,[{"time",10}]},
+	?assertMatch({ok}, evaluate_json(Config, ExpectedReply3, Reply3)),
 
 	ExpectedReply4 = { obj,[{"time", #var{name="vHours"}}]},
-	Reply4 = { obj,[{"time","61"}]},
-	?assertMatch({failed, _, _, _}, evaluate_json(Config, ExpectedReply4, Reply4)),
+	Reply4 = { obj,[{"time",61}]},
+	?assertMatch({failed, _}, evaluate_json(Config, ExpectedReply4, Reply4)),
 
 	ExpectedReply5 = { obj,[{"percent", #var{name="vFloatPercent"}}]},
-	Reply5 = { obj,[{"percent","0.121211234"}]},
-	?assertMatch(ok, evaluate_json(Config, ExpectedReply5, Reply5)),
+	Reply5 = { obj,[{"percent",0.121211234}]},
+	?assertMatch({ok}, evaluate_json(Config, ExpectedReply5, Reply5)),
 
 	ExpectedReply6 = { obj,[{"percent", #var{name="vFloatPercent"}}]},
-	Reply6 = { obj,[{"percent","1.021211234"}]},
-	?assertMatch({failed, _, _, _}, evaluate_json(Config, ExpectedReply6, Reply6)),
+	Reply6 = { obj,[{"percent",1.021211234}]},
+	?assertMatch({failed, _}, evaluate_json(Config, ExpectedReply6, Reply6)),
 
 	ExpectedReply={	obj,[{"results",
 		   				 [{obj,[{"address_components",
@@ -349,19 +349,48 @@ evaluate_json_test() ->
 		  				{"status",<<"OK">>}]},
 
 
-	?assert(evaluate_json(Config, ExpectedReply, Reply) == ok).
+	?assertMatch({ok}, evaluate_json(Config, ExpectedReply, Reply)).
 
 
-evaluate_var(Config, VarName, Pattern) ->
+evaluate_var(Config, VarName, Term) ->
 	case cfg_get_var_entry(Config, VarName) of
 		{error} -> 
 			Msg = lists:flatten(io_lib:format("Variable ~p not declared.", [VarName])),
-			{failed, Msg};
+			{failed, [{missmatch, var}, {msg, Msg}]};
 		
-		{ok, Entry} ->
-			io:format("Try to match ~p against ~p~n", [Entry, Pattern]),
-			ok
+		{ok, VarEntry} ->
+			io:format("Try to match ~p against ~p~n", [VarEntry, Term]),
+			evaluate_var_type(VarEntry, Term)
 	end.
+
+evaluate_var_type(Var=#var{type=Type, name=VarName}, Term) ->
+	case debutten:validate(Term, {Type}) of
+		true ->
+			evaluate_var_def(Var, Term);
+		_Else ->
+			Msg = lists:flatten(io_lib:format("Variable ~p does not match ~p.", [VarName, Term])),
+			{failed, [{missmatch, var}, {msg, Msg}]}
+	end.
+
+evaluate_var_def(#var{def=[]}, _Term) ->
+	{ok};
+evaluate_var_def(Var=#var{name=VarName, def=[{min, Min} | Rest]}, Term) ->
+	case Term >= Min  of
+		true ->
+			evaluate_var_def(Var#var{def=Rest}, Term);
+		_Else ->
+			Msg = lists:flatten(io_lib:format("Variable ~p(value:~p) is less than ~p.", [VarName, Term, Min])),
+			{failed, [{missmatch, var},{mag, Msg}]}
+	end;
+evaluate_var_def(Var=#var{name=VarName, def=[{max, Max} | Rest]}, Term) ->
+	case Term < Max  of
+		true ->
+			evaluate_var_def(Var#var{def=Rest}, Term);
+		_Else ->
+			Msg = lists:flatten(io_lib:format("Variable ~p(value:~p) is greater than ~p.", [VarName, Term, Max])),
+			{failed, [{missmatch, var},{mag, Msg}]}
+	end.
+
 
 
 %
