@@ -25,8 +25,7 @@
 	param_to_str/3,
 	param_to_str/1,
 	prop_test/1,
-	test1/0,
-	my_function/1
+	test1/0
 	]).
 
 -export_type([resttcfg/0]).
@@ -47,6 +46,15 @@
 -record(reply, {name, match_list}).
 -record(test, {name, request_name, reply_name, iter}).
 
+
+%
+% @todo implement all attr.
+%
+stat_req(Host, Path, Method, Params) ->
+	ParamStr = param_to_str(Params),
+	PathAndParams = string:concat(Path, ParamStr),
+	ibrowse:send_req(string:concat(Host, PathAndParams), [], Method).
+
 %
 % Run REST test
 %
@@ -58,73 +66,6 @@ quickcheck(Config) ->
 	application:start(ibrowse),
 	ListOfTests = Config#resttcfg.test_list,
 	run_tests(Config, ListOfTests).
-
-quickcheck_test() ->
-	Vars = [{var, "vHours", {integer, 0, 24}},
-			{var, "vMinutes", {integer, 0, 60}},
-			{var, "vFloatPercent", {float, 0.0, 1.0}}],
-
-	Requests = [{request, "req1", "http://maps.googleapis.com", "/maps/api/geocode/json", 
-				[{"address", "Berlin,Germany"}, {"sensor", "false"}], get, undefined, undefined}],
-
-	Replies = [{reply, 
-				"rep1",  
-				[	{status, 200},
-					{header_part, 
-						[	{"Content-Type","application/json; charset=UTF-8"},
-							%{"Date","Sun, 30 Sep 2012 14:24:30 GMT"},
-							%{"Expires","Mon, 01 Oct 2012 14:24:30 GMT"},
-							{"Cache-Control","public, max-age=86400"},
-							{"Vary","Accept-Language"},
-							{"Server","mafe"},
-							{"X-XSS-Protection","1; mode=block"},
-							{"X-Frame-Options","SAMEORIGIN"},
-							{"Transfer-Encoding","chunked"}]},
-					{json_body, 
-					{	obj,[{"results",
-		   				 [{obj,[{"address_components",
-				   				[{obj,[{"long_name",<<"Berlin">>},
-						  				{"short_name",<<"Berlin">>},
-						  				{"types",[<<"locality">>,<<"political">>]}]},
-									{obj,[{"long_name",<<"Berlin">>},
-						  				  {"short_name",<<"Berlin">>},
-						  				  {"types", [<<"administrative_area_level_1">>, <<"political">>]}]},
-									{obj,[{"long_name",<<"Germany">>},
-						  				{"short_name",<<"DE">>},
-						  				{"types",[<<"country">>,<<"political">>]}]}]},
-				  				{"formatted_address",<<"Berlin, Germany">>},
-				  				{"geometry",
-				   				{obj,[{"bounds",
-						  				{obj,[{"northeast",
-								 				{obj,[{"lat",52.6754542},
-									   				{"lng",13.7611176}]}},
-												{"southwest",
-								 				{obj,[{"lat",52.33962959999999},
-									   				{"lng",13.0911663}]}}]}},
-						 				{"location",
-						  				{obj,[{"lat",52.519171},{"lng",13.4060912}]}},
-						 				{"location_type",<<"APPROXIMATE">>},
-						 				{"viewport",
-						  				{obj,[{"northeast",
-								 				{obj,[{"lat",52.6754542},
-									   				{"lng",13.7611176}]}},
-												{"southwest",
-								 				{obj,[{"lat",52.33962959999999},
-									   				{"lng",13.0911663}]}}]}}]}},
-				  				{"types",[<<"locality">>,<<"political">>]}]}]},
-		  				{"status",<<"OK">>}]}
-					}
-				] 
-			}],
-			
-	Tests = [{test, "test1", "req1", "rep1", 100},
-			{test, "test2", "req2", "rep1", 100},
-			{test, "test3", "req1", "rep2", 100},
-			{test, "test4", "req2", "rep2", 100},
-			{test, "test5", "req1", "rep1", 100}],
-
-	Config = #resttcfg{var_list=Vars, req_list=Requests, rep_list=Replies, test_list=Tests},
-	quickcheck(Config).
 
 
 %
@@ -259,6 +200,109 @@ evaluate_json(_Config, Value, Value) ->
 evaluate_json(_Config, ExpectedReplyValue, ReplyValue) ->
     {failed, {jbody, ExpectedReplyValue, ReplyValue}}.
 
+evaluate_var(Config, VarName, Term) ->
+	case cfg_get_var_entry(Config, VarName) of
+		{error} -> 
+			Msg = lists:flatten(io_lib:format("Variable ~p not declared.", [VarName])),
+			{failed, [{missmatch, var}, {msg, Msg}]};
+		
+		{ok, VarEntry} ->
+			io:format("Try to match ~p against ~p~n", [VarEntry, Term]),
+			evaluate_var_type(VarEntry, Term)
+	end.
+
+evaluate_var_type(Var=#var{type=Type, name=VarName}, Term) ->
+	case debutten:validate(Term, {Type}) of
+		true ->
+			evaluate_var_def(Var, Term);
+		_Else ->
+			Msg = lists:flatten(io_lib:format("Variable ~p does not match ~p.", [VarName, Term])),
+			{failed, [{missmatch, var}, {msg, Msg}]}
+	end.
+
+evaluate_var_def(#var{def=[]}, _Term) ->
+	{ok};
+evaluate_var_def(Var=#var{name=VarName, def=[{min, Min} | Rest]}, Term) ->
+	case Term >= Min  of
+		true ->
+			evaluate_var_def(Var#var{def=Rest}, Term);
+		_Else ->
+			Msg = lists:flatten(io_lib:format("Variable ~p(value:~p) is less than ~p.", [VarName, Term, Min])),
+			{failed, [{missmatch, var},{mag, Msg}]}
+	end;
+evaluate_var_def(Var=#var{name=VarName, def=[{max, Max} | Rest]}, Term) ->
+	case Term < Max  of
+		true ->
+			evaluate_var_def(Var#var{def=Rest}, Term);
+		_Else ->
+			Msg = lists:flatten(io_lib:format("Variable ~p(value:~p) is greater than ~p.", [VarName, Term, Max])),
+			{failed, [{missmatch, var},{mag, Msg}]}
+	end.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%  Configuration
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%
+% @spec cfg_get_request_entry(Config, EntryName) -> {ok, Entry} | {error}
+% where
+%	Config = resttcfg()
+%	EntryName = string()
+%	Entry = request_record()
+%
+cfg_get_request_entry(Config, EntryName) ->
+	
+	case
+		[E || E <- Config#resttcfg.req_list, is_record(E, request), E#request.name == EntryName] 
+	of
+		[Entry] -> 
+			{ok, Entry}; 
+		[] -> 
+			{error}
+	end.
+
+%
+% @spec cfg_get_reply_entry(Config, EntryName) -> {ok, Entry} | {error}
+% where
+%	Config = resttcfg()
+%	EntryName = string()
+%	Entry = request_record()
+%
+cfg_get_reply_entry(Config, EntryName) ->
+	case
+		[E || E <- Config#resttcfg.rep_list, is_record(E, reply), E#reply.name == EntryName]
+	of
+		[Entry] -> 
+			{ok, Entry} ;
+		[] ->
+			{error}
+	end.
+
+%
+% @spec cfg_get_var_entry(Config, EntryName) -> {ok, Entry} | {error}
+% where
+%	Config = resttcfg()
+%	EntryName = string()
+%	Entry = request_record()
+%
+cfg_get_var_entry(Config, EntryName) ->
+	case
+		[E || E <- Config#resttcfg.var_list, is_record(E, var), E#var.name == EntryName]
+	of
+		[Entry] -> 
+			{ok, Entry} ;
+		[] ->
+			{error}
+	end.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%   Tests
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 evaluate_json_test() ->
 	Vars = [#var{name="Var1", type=string, def=[]},
@@ -367,45 +411,72 @@ evaluate_json_test() ->
 	?assertMatch({ok}, evaluate_json(Config, ExpectedReply, Reply)).
 
 
-evaluate_var(Config, VarName, Term) ->
-	case cfg_get_var_entry(Config, VarName) of
-		{error} -> 
-			Msg = lists:flatten(io_lib:format("Variable ~p not declared.", [VarName])),
-			{failed, [{missmatch, var}, {msg, Msg}]};
-		
-		{ok, VarEntry} ->
-			io:format("Try to match ~p against ~p~n", [VarEntry, Term]),
-			evaluate_var_type(VarEntry, Term)
-	end.
+quickcheck_test() ->
+	Vars = [{var, "vHours", {integer, 0, 24}},
+			{var, "vMinutes", {integer, 0, 60}},
+			{var, "vFloatPercent", {float, 0.0, 1.0}}],
 
-evaluate_var_type(Var=#var{type=Type, name=VarName}, Term) ->
-	case debutten:validate(Term, {Type}) of
-		true ->
-			evaluate_var_def(Var, Term);
-		_Else ->
-			Msg = lists:flatten(io_lib:format("Variable ~p does not match ~p.", [VarName, Term])),
-			{failed, [{missmatch, var}, {msg, Msg}]}
-	end.
+	Requests = [{request, "req1", "http://maps.googleapis.com", "/maps/api/geocode/json", 
+				[{"address", "Berlin,Germany"}, {"sensor", "false"}], get, undefined, undefined}],
 
-evaluate_var_def(#var{def=[]}, _Term) ->
-	{ok};
-evaluate_var_def(Var=#var{name=VarName, def=[{min, Min} | Rest]}, Term) ->
-	case Term >= Min  of
-		true ->
-			evaluate_var_def(Var#var{def=Rest}, Term);
-		_Else ->
-			Msg = lists:flatten(io_lib:format("Variable ~p(value:~p) is less than ~p.", [VarName, Term, Min])),
-			{failed, [{missmatch, var},{mag, Msg}]}
-	end;
-evaluate_var_def(Var=#var{name=VarName, def=[{max, Max} | Rest]}, Term) ->
-	case Term < Max  of
-		true ->
-			evaluate_var_def(Var#var{def=Rest}, Term);
-		_Else ->
-			Msg = lists:flatten(io_lib:format("Variable ~p(value:~p) is greater than ~p.", [VarName, Term, Max])),
-			{failed, [{missmatch, var},{mag, Msg}]}
-	end.
+	Replies = [{reply, 
+				"rep1",  
+				[	{status, 200},
+					{header_part, 
+						[	{"Content-Type","application/json; charset=UTF-8"},
+							%{"Date","Sun, 30 Sep 2012 14:24:30 GMT"},
+							%{"Expires","Mon, 01 Oct 2012 14:24:30 GMT"},
+							{"Cache-Control","public, max-age=86400"},
+							{"Vary","Accept-Language"},
+							{"Server","mafe"},
+							{"X-XSS-Protection","1; mode=block"},
+							{"X-Frame-Options","SAMEORIGIN"},
+							{"Transfer-Encoding","chunked"}]},
+					{json_body, 
+					{	obj,[{"results",
+		   				 [{obj,[{"address_components",
+				   				[{obj,[{"long_name",<<"Berlin">>},
+						  				{"short_name",<<"Berlin">>},
+						  				{"types",[<<"locality">>,<<"political">>]}]},
+									{obj,[{"long_name",<<"Berlin">>},
+						  				  {"short_name",<<"Berlin">>},
+						  				  {"types", [<<"administrative_area_level_1">>, <<"political">>]}]},
+									{obj,[{"long_name",<<"Germany">>},
+						  				{"short_name",<<"DE">>},
+						  				{"types",[<<"country">>,<<"political">>]}]}]},
+				  				{"formatted_address",<<"Berlin, Germany">>},
+				  				{"geometry",
+				   				{obj,[{"bounds",
+						  				{obj,[{"northeast",
+								 				{obj,[{"lat",52.6754542},
+									   				{"lng",13.7611176}]}},
+												{"southwest",
+								 				{obj,[{"lat",52.33962959999999},
+									   				{"lng",13.0911663}]}}]}},
+						 				{"location",
+						  				{obj,[{"lat",52.519171},{"lng",13.4060912}]}},
+						 				{"location_type",<<"APPROXIMATE">>},
+						 				{"viewport",
+						  				{obj,[{"northeast",
+								 				{obj,[{"lat",52.6754542},
+									   				{"lng",13.7611176}]}},
+												{"southwest",
+								 				{obj,[{"lat",52.33962959999999},
+									   				{"lng",13.0911663}]}}]}}]}},
+				  				{"types",[<<"locality">>,<<"political">>]}]}]},
+		  				{"status",<<"OK">>}]}
+					}
+				] 
+			}],
+			
+	Tests = [{test, "test1", "req1", "rep1", 100},
+			 {test, "test2", "req2", "rep1", 100},
+			 {test, "test3", "req1", "rep2", 100},
+			 {test, "test4", "req2", "rep2", 100},
+			 {test, "test5", "req1", "rep1", 100}],
 
+	Config = #resttcfg{var_list=Vars, req_list=Requests, rep_list=Replies, test_list=Tests},
+	quickcheck(Config).
 
 
 %
@@ -427,13 +498,7 @@ stat_req_test() ->
 	?assert( Rc == ok).
 
 
-%
-% @todo implement all attr.
-%
-stat_req(Host, Path, Method, Params) ->
-	ParamStr = param_to_str(Params),
-	PathAndParams = string:concat(Path, ParamStr),
-	ibrowse:send_req(string:concat(Host, PathAndParams), [], Method).
+
 
 
 %
@@ -454,65 +519,6 @@ param_to_str([{Key, Value} | Rest], IncompleteResultString, NumOfParam) ->
 
 param_to_str([], ResultString, _) ->
 	ResultString.
-
-
-
-%
-% Configuration
-%
-
-%
-% @spec cfg_get_request_entry(Config, EntryName) -> {ok, Entry} | {error}
-% where
-%	Config = resttcfg()
-%	EntryName = string()
-%	Entry = request_record()
-%
-cfg_get_request_entry(Config, EntryName) ->
-	
-	case
-		[E || E <- Config#resttcfg.req_list, is_record(E, request), E#request.name == EntryName] 
-	of
-		[Entry] -> 
-			{ok, Entry}; 
-		[] -> 
-			{error}
-	end.
-
-%
-% @spec cfg_get_reply_entry(Config, EntryName) -> {ok, Entry} | {error}
-% where
-%	Config = resttcfg()
-%	EntryName = string()
-%	Entry = request_record()
-%
-cfg_get_reply_entry(Config, EntryName) ->
-	case
-		[E || E <- Config#resttcfg.rep_list, is_record(E, reply), E#reply.name == EntryName]
-	of
-		[Entry] -> 
-			{ok, Entry} ;
-		[] ->
-			{error}
-	end.
-
-%
-% @spec cfg_get_var_entry(Config, EntryName) -> {ok, Entry} | {error}
-% where
-%	Config = resttcfg()
-%	EntryName = string()
-%	Entry = request_record()
-%
-cfg_get_var_entry(Config, EntryName) ->
-	case
-		[E || E <- Config#resttcfg.var_list, is_record(E, var), E#var.name == EntryName]
-	of
-		[Entry] -> 
-			{ok, Entry} ;
-		[] ->
-			{error}
-	end.
-
 
 %
 % Proper testing
