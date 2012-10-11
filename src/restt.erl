@@ -1,6 +1,16 @@
-% RESTt - REST Test Library
-%
-% @author Robert Doering
+%%% RESTt - REST Test Library
+%%%
+
+%%% @copyright 2012 Robert Doering
+%%% @author Robert Doering
+%%% @version {@version}
+
+%%% @doc  
+%%% RESTt is a acronym for REST Test, it's a library to test a RESTful-API. 
+%%% == General ==
+%%% 
+%%% == How to write a test ==
+%%% 
 
 -module(restt).
 
@@ -15,29 +25,34 @@
 	param_to_str/3,
 	param_to_str/1,
 	prop_test/1,
-	test1/0
+	test1/0,
+	my_function/1
 	]).
 
+-export_type([resttcfg/0]).
 
 %
 -record(resttcfg, {var_list = [], req_list = [], rep_list = [], test_list = []}).
+-type resttcfg() :: #resttcfg{var_list::var()}.
+%% @Todo Add an example
+%%
 
 % Record for static request.
 % @todo export into a header file
-% @todo don't use an record, usr 
-%-record(statreq, {host, path, params, method, header, body}).
+
 
 -record(var, {name, type=undefined, def=undefined}).
--record(request, {name, host, path, params, method, header, body}).
+-type var() :: #var{name::string(), type::'integer'|'float'|'string', def::[{'min'|'max', Value::term()}]}.
+-record(request, {name, host, path, params, method, header, body}).	
 -record(reply, {name, match_list}).
 -record(test, {name, request_name, reply_name, iter}).
-
 
 %
 % Run REST test
 %
 % @todo: Write a spec of config
 %
+-spec quickcheck(resttcfg()) -> 'ok'.
 quickcheck(Config) ->
 	application:start(sasl),
 	application:start(ibrowse),
