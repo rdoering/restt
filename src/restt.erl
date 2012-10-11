@@ -40,8 +40,14 @@
 % @todo export into a header file
 
 
--record(var, {name, type=undefined, def=undefined}).
--type var() :: #var{name::string(), type::'integer'|'float'|'string', def::[{'min'|'max', Value::term()}]}.
+-record(var, {name, type=undefined, is_generated=false, value=undefined, def=undefined}).
+-type var() :: #var{name::string(), 
+					type::'integer'|'float'|'string', 
+					is_generated::boolean(), 
+					value::term(),
+					def::[{'min'|'max', 
+					Value::term()}]}.
+
 -record(request, {name, host, path, params, method, header, body}).	
 -record(reply, {name, match_list}).
 -record(test, {name, request_name, reply_name, iter}).
@@ -214,11 +220,22 @@ evaluate_var(Config, VarName, Term) ->
 evaluate_var_type(Var=#var{type=Type, name=VarName}, Term) ->
 	case debutten:validate(Term, {Type}) of
 		true ->
-			evaluate_var_def(Var, Term);
+			evaluate_var_value(Var, Term);
 		_Else ->
 			Msg = lists:flatten(io_lib:format("Variable ~p does not match ~p.", [VarName, Term])),
 			{failed, [{missmatch, var}, {msg, Msg}]}
 	end.
+
+evaluate_var_value(#var{is_generated=true, value=Value, name=VarName}, Term) ->
+	case Term of
+		Value ->
+			{ok};
+		_Else ->
+			Msg = lists:flatten(io_lib:format("Variable ~p (Value:~p) does not match ~p.", [VarName, Value, Term])),
+			{failed, [{missmatch, var}, {msg, Msg}]}
+	end;
+evaluate_var_value(Var=#var{is_generated=false}, Term) ->
+	evaluate_var_def(Var, Term).
 
 evaluate_var_def(#var{def=[]}, _Term) ->
 	{ok};
