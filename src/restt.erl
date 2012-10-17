@@ -25,7 +25,8 @@
 	param_to_str/3,
 	param_to_str/1,
 	prop_test/1,
-	test1/0
+	test1/0,
+	day/0
 	]).
 
 -export_type([resttcfg/0]).
@@ -603,15 +604,21 @@ insert_value(Value, {Key, {?TYPEMARKER, _, _}}) ->
 %
 %
 m_test() ->
-	proper:quickcheck(measure("Der Titel", [2, 30, 60], mprop_test())).
+	Vars = [#var{name="vHours", type=integer, value=integer(0, 24), def=[{min, 0},{max, 24}]},
+			#var{name="vFloatPercent", type=float, def=[{min, 0.0},{max, 1.0}]} ],
 
-mprop_test() ->
-	F = fun (_Input) -> 
-		%io:format("Input: ~p~n", [Input]),
+	proper:quickcheck(measure("Der Titel", [2, 30, 60], mprop_test(Vars))).
+
+mprop_test(Vars) ->
+	F = fun (Input) -> 
+		io:format("Input: ~p~n", [Input]),
 		true==true
 		end,
 	io:format("hi~n"),
 
 	proper:with_title("hello"),
 	
-	?FORALL(V, {integer(10, 20), bool()}, F(V)).
+	?FORALL(ProcessedVars, Vars, F(ProcessedVars)).
+
+
+day() -> union(['mo','tu','we','th','fr','sa','su']).
