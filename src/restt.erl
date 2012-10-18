@@ -39,15 +39,14 @@
 
 % Record for static request.
 % @todo export into a header file
-
-
--record(var, {name, type=undefined, is_generated=false, value=undefined, def=undefined}).
+-type min_integer() :: integer.
+-type max_integer() :: integer.
+-record(var, {name, type=undefined, is_generated=false, value=undefined, def={}}).
 -type var() :: #var{name::string(), 
 					type::'integer'|'float'|'string', 
 					is_generated::boolean(), 
 					value::term(),
-					def::[{'min'|'max', 
-					Value::term()}]}.
+					def::{min_integer(), max_integer()}|{} }.
 
 -record(request, {name, host, path, params, method, header, body}).	
 -record(reply, {name, match_list}).
@@ -105,16 +104,19 @@ run_tests(Config, [Test | OtherTests]) ->
 			io:format("    Warning: missing request entry ~p~n", [Test#test.request_name]);
 		{ok, ReqEntry} ->
 			%io:format("    Request Content: ~n~p~n", [ReqEntry]),
-			ServerReply = stat_req(ReqEntry#request.host, ReqEntry#request.path, ReqEntry#request.method, ReqEntry#request.params),
 			
 			case cfg_get_reply_entry(Config, Test#test.reply_name) of
 				{error} ->
 					io:format("    Warning: missing reply entry ~p~n", [Test#test.reply_name]);
 				{ok, RepEntry} ->
-					%
-					% @todo here comes the proper loop
-					%
-					case evaluate_server_reply(Config, RepEntry#reply.match_list, ServerReply) of
+					GenVarList = generate_values(Config),
+					%@todo dont call it Config, use it as generated var_list as it is!
+					NewConfig = Config#resttcfg{var_list=GenVarList},
+					io:format("    Generated Vars: ~p~n", [GenVarList]),
+
+					% @todo ?Forall....
+					ServerReply = stat_req(ReqEntry#request.host, ReqEntry#request.path, ReqEntry#request.method, ReqEntry#request.params),
+					case evaluate_server_reply(NewConfig, RepEntry#reply.match_list, ServerReply) of
 						{ok} ->
 							io:format("    Result: Passed~n");
 						{failed, FailedReason} ->
@@ -124,6 +126,29 @@ run_tests(Config, [Test | OtherTests]) ->
 
 	end,
 	run_tests(Config, OtherTests).
+
+
+%
+%
+%
+-spec generate_values(resttcfg()) -> var().
+generate_values(#resttcfg{var_list=Vars}) -> 
+	generate_value_list(Vars, []).
+
+generate_value_list([#var{is_generated=false} | Rest], Generated_Value_List) ->
+	generate_value_list(Rest, Generated_Value_List);
+generate_value_list([Var=#var{is_generated=true, type=float, def={Min, Max}} | Rest], Generated_Value_List) ->
+	generate_value_list(Rest, [Var#var{value=float(Min, Max)} | Generated_Value_List]);
+generate_value_list([Var=#var{is_generated=true, type=float, def={}} | Rest], Generated_Value_List) ->
+	generate_value_list(Rest, [Var#var{value=float()} | Generated_Value_List]);
+generate_value_list([Var=#var{is_generated=true, type=integer, def={Min, Max}} | Rest], Generated_Value_List) ->
+	generate_value_list(Rest, [Var#var{value=integer(Min, Max)} | Generated_Value_List]);
+generate_value_list([Var=#var{is_generated=true, type=integer, def={}} | Rest], Generated_Value_List) ->
+	generate_value_list(Rest, [Var#var{value=integer()} | Generated_Value_List]);
+generate_value_list([Var=#var{is_generated=true, type=string} | Rest], Generated_Value_List) ->
+	generate_value_list(Rest, [Var#var{value=string()} | Generated_Value_List]);
+generate_value_list([], Generated_Value_List) ->
+	Generated_Value_List.
 
 
 %%
@@ -323,11 +348,11 @@ cfg_get_var_entry(Config, EntryName) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 evaluate_json_test() ->
-	Vars = [#var{name="Var1", type=string, def=[]},
-			#var{name="Var2", type=string, def=[]},
-			#var{name="vHours", type=integer, def=[{min, 0},{max, 24}]},
-			#var{name="vMinutes", type=integer, def=[{min, 0},{max, 60}]},
-			#var{name="vFloatPercent", type=float, def=[{min, 0.0},{max, 1.0}]} ],
+	Vars = [#var{name="Var1", type=string, def={}},
+			#var{name="Var2", type=string, def={}},
+			#var{name="vHours", type=integer, def={0, 24}},
+			#var{name="vMinutes", type=integer, def={0, 60}},
+			#var{name="vFloatPercent", type=float, def={0.0, 1.0}} ],
 
 	Config = #resttcfg{var_list=Vars, req_list=undefined, rep_list=undefined, test_list=undefined},
 
@@ -430,12 +455,16 @@ evaluate_json_test() ->
 
 
 quickcheck_test() ->
-	Vars = [{var, "vHours", {integer, 0, 24}},
-			{var, "vMinutes", {integer, 0, 60}},
-			{var, "vFloatPercent", {float, 0.0, 1.0}}],
+	Vars = [#var{name="vHours", type=integer, def={0, 24}},
+			#var{name="vMinutes", type=integer, def={0, 60}},
+			#var{name="vFloatPercent", type=float, def={0.0, 1.0}},
+			#var{name="vHoursG", type=integer, def={0, 24}, is_generated=true},
+			#var{name="vMinutesG", type=integer, is_generated=true},
+			#var{name="vFloatPercentG", type=float, def={0.0, 1.0}, is_generated=true} ],
 
-	Requests = [{request, "req1", "http://maps.googleapis.com", "/maps/api/geocode/json", 
-				[{"address", "Berlin,Germany"}, {"sensor", "false"}], get, undefined, undefined}],
+	Requests = [#request{name="req1", host="http://maps.googleapis.com", path="/maps/api/geocode/json", 
+				params=[{"address", "Berlin,Germany"}, {"sensor", "false"}], method=get, 
+				header=undefined, body=undefined}],
 
 	Replies = [{reply, 
 				"rep1",  
@@ -605,6 +634,7 @@ insert_value(Value, {Key, {?TYPEMARKER, _, _}}) ->
 %
 m_test() ->
 	Vars = [#var{name="vHours", type=integer, value=integer(0, 24), def=[{min, 0},{max, 24}]},
+			#var{name="vText", type=string, value=string()},
 			#var{name="vFloatPercent", type=float, def=[{min, 0.0},{max, 1.0}]} ],
 
 	proper:quickcheck(measure("Der Titel", [2, 30, 60], mprop_test(Vars))).
