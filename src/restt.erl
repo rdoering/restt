@@ -39,8 +39,8 @@
 
 % Record for static request.
 % @todo export into a header file
--type min_integer() :: integer.
--type max_integer() :: integer.
+-type min_integer() :: integer().
+-type max_integer() :: integer().
 -record(var, {name, type=undefined, is_generated=false, value=undefined, def={}}).
 -type var() :: #var{name::string(), 
 					type::'integer'|'float'|'string', 
@@ -48,7 +48,22 @@
 					value::term(),
 					def::{min_integer(), max_integer()}|{} }.
 
--record(request, {name, host, path, params, method, header, body}).	
+-type json() :: jsonobj() | jsonarray() | jsonnum() | jsonstr() | true | false | null.
+-type jsonobj() :: {obj, [{jsonkey(), json()}]}.
+-type jsonkey() :: string().
+-type jsonarray() :: [json()].
+-type jsonnum() :: integer() | float().
+-type jsonstr() :: binary().
+-type keyValueList() :: [{string(), string()}].
+-record(request, {name, host, path, params, method, header=[], body=[]}).	
+-type request() :: #request{name::string(),
+						host::string(),
+						path::string(),
+						params::keyValueList(),
+						method::atom(),
+						header::keyValueList(),
+						body::json()}.
+
 -record(reply, {name, match_list}).
 -record(test, {name, request_name, reply_name, iter}).
 
@@ -56,10 +71,37 @@
 %
 % @todo implement all attr.
 %
-stat_req(Host, Path, Method, Params) ->
-	ParamStr = param_to_str(Params),
-	PathAndParams = string:concat(Path, ParamStr),
-	ibrowse:send_req(string:concat(Host, PathAndParams), [], Method).
+-type response() :: {ok, Status::integer(), ResponseHeaders::term(), ResponseBody::term()} 
+					| {ibrowse_req_id, Req_id::term()} | {error, Reason::term()}.
+-spec stat_req(Parameters::request()) -> response().
+stat_req(Request=#request{}) ->
+	ParamStr = param_to_str(Request#request.params),
+	PathAndParams = string:concat(Request#request.path, ParamStr),
+	Url = string:concat(Request#request.host, PathAndParams),
+	ibrowse:send_req(Url, 
+					 Request#request.header, 
+					 Request#request.method,
+					 Request#request.body, 
+					 []).
+
+
+%
+% Combine parameters to one string
+%
+-spec param_to_str(keyValueList()) -> UrlParams::string().
+param_to_str(ListOfParams) ->
+	param_to_str(ListOfParams, "", 0).
+
+param_to_str([{Key, Value} | Rest], IncompleteResultString, NumOfParam) ->
+	case NumOfParam of
+		0 ->
+			StringWithDelimiter = "?";
+		_ ->
+			StringWithDelimiter = string:concat(IncompleteResultString, "&")
+	end,
+	param_to_str(Rest, string:concat(StringWithDelimiter, string:concat(Key, string:concat("=", Value))), NumOfParam + 1);
+param_to_str([], ResultString, _) ->
+	ResultString.
 
 %
 % Run REST test
@@ -115,7 +157,7 @@ run_tests(Config, [Test | OtherTests]) ->
 					io:format("    Generated Vars: ~p~n", [GenVarList]),
 
 					% @todo ?Forall....
-					ServerReply = stat_req(ReqEntry#request.host, ReqEntry#request.path, ReqEntry#request.method, ReqEntry#request.params),
+					ServerReply = stat_req(ReqEntry),
 					case evaluate_server_reply(NewConfig, RepEntry#reply.match_list, ServerReply) of
 						{ok} ->
 							io:format("    Result: Passed~n");
@@ -463,8 +505,7 @@ quickcheck_test() ->
 			#var{name="vFloatPercentG", type=float, def={0.0, 1.0}, is_generated=true} ],
 
 	Requests = [#request{name="req1", host="http://maps.googleapis.com", path="/maps/api/geocode/json", 
-				params=[{"address", "Berlin,Germany"}, {"sensor", "false"}], method=get, 
-				header=undefined, body=undefined}],
+				params=[{"address", "Berlin,Germany"}, {"sensor", "false"}], method=get}],
 
 	Replies = [{reply, 
 				"rep1",  
@@ -530,42 +571,31 @@ quickcheck_test() ->
 % Request for http://maps.googleapis.com/maps/api/geocode/json?address=Berlin,Germany&sensor=false
 %
 stat_req_test() ->
-	A = #request{host="http://maps.googleapis.com", 
+	A = #request{name="sample1",
+		host="http://maps.googleapis.com", 
 		path="/maps/api/geocode/json", 
 		params=[{"address", "Berlin,Germany"}, 
 				{"sensor", "false"}], 
-		method=get, 
-		header=undefined, 
-		body=undefined},
+		method=get},
 
 	io:format("Request: ~n~p~n", [A]),
-	Res = stat_req(A#request.host, A#request.path, A#request.method, A#request.params),
+	Res = stat_req(A),
 	io:format("Result: ~n~p~n", [Res]),
 	{Rc, _State, _Header, _Body} = Res,
 	?assert( Rc == ok).
 
 
+param_to_str_test() ->
+	Tests = [{"?Limit=12", [{"Limit", "12"}]},
+			 {"?Q=w&Limit=12", [{"Q", "w"}, {"Limit", "12"}]},
+			 {"", []}],
+	param_to_str_test(Tests).
+param_to_str_test([{Expected, Input} | Rest]) ->
+	?assertMatch(Expected, param_to_str(Input)),
+	param_to_str_test(Rest);
+param_to_str_test([]) ->
+	ok.
 
-
-
-%
-% Combine parameters to one string
-%
-param_to_str(ListOfParams) ->
-	param_to_str(ListOfParams, "", 0).
-
-param_to_str([{Key, Value} | Rest], IncompleteResultString, NumOfParam) ->
-	case NumOfParam of
-		0 ->
-			StringWithDelimiter = "?";
-		_ ->
-			StringWithDelimiter = string:concat(IncompleteResultString, "&")
-	end,
-	
-	param_to_str(Rest, string:concat(StringWithDelimiter, string:concat(Key, string:concat("=", Value))), NumOfParam + 1);
-
-param_to_str([], ResultString, _) ->
-	ResultString.
 
 %
 % Proper testing
