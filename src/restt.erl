@@ -69,7 +69,7 @@
 
 
 %
-% @todo implement all attr.
+%
 %
 -type response() :: {ok, Status::integer(), ResponseHeaders::term(), ResponseBody::term()} 
 					| {ibrowse_req_id, Req_id::term()} | {error, Reason::term()}.
@@ -78,6 +78,7 @@ stat_req(Request=#request{}) ->
 	ParamStr = param_to_str(Request#request.params),
 	PathAndParams = string:concat(Request#request.path, ParamStr),
 	Url = string:concat(Request#request.host, PathAndParams),
+	%io:format("stat_req: ~p~n", [Url]),
 	ibrowse:send_req(Url, 
 					 Request#request.header, 
 					 Request#request.method,
@@ -112,8 +113,13 @@ param_to_str([], ResultString, _) ->
 quickcheck(Config) ->
 	application:start(sasl),
 	application:start(ibrowse),
-	ListOfTests = Config#resttcfg.test_list,
-	run_tests(Config, ListOfTests).
+
+	GenVarList = generate_values(Config),
+	ConfigWithProperVars = Config#resttcfg{var_list=GenVarList},
+	io:format("Generated Vars: ~p~n", [GenVarList]),
+
+	ListOfTests = ConfigWithProperVars#resttcfg.test_list,
+	run_tests(ConfigWithProperVars, ListOfTests).
 
 
 %
@@ -132,42 +138,48 @@ run_tests(Config, [Test | OtherTests]) ->
 	io:format("    Send Request ~p ~n", [Test#test.request_name]),
 	io:format("    Reply Rule ~p ~n", [Test#test.reply_name]),
 
-	%
-	% @todo
-	% Is that the best way?
-	% if func1() failed
-	%	return error
-	% if func2() failed
-	% 	return error
-	% return ok
-	%
 	case cfg_get_request_entry(Config, Test#test.request_name) of
 		{error} -> 
-			io:format("    Warning: missing request entry ~p~n", [Test#test.request_name]);
+			io:format("    Warning: missing request entry ~p~n", [Test#test.request_name]),
+			false;
 		{ok, ReqEntry} ->
-			%io:format("    Request Content: ~n~p~n", [ReqEntry]),
-			
 			case cfg_get_reply_entry(Config, Test#test.reply_name) of
 				{error} ->
-					io:format("    Warning: missing reply entry ~p~n", [Test#test.reply_name]);
+					io:format("    Warning: missing reply entry ~p~n", [Test#test.reply_name]),
+					false;
 				{ok, RepEntry} ->
-					GenVarList = generate_values(Config),
-					%@todo dont call it Config, use it as generated var_list as it is!
-					NewConfig = Config#resttcfg{var_list=GenVarList},
-					io:format("    Generated Vars: ~p~n", [GenVarList]),
-
-					% @todo ?Forall....
-					ServerReply = stat_req(ReqEntry),
-					case evaluate_server_reply(NewConfig, RepEntry#reply.match_list, ServerReply) of
-						{ok} ->
-							io:format("    Result: Passed~n");
-						{failed, FailedReason} ->
-							io:format("    Result: Failed (~p)~n", [FailedReason])
-					end
+					proper:quickcheck(outer_proper_test(Config, ReqEntry, RepEntry))
 			end
-
 	end,
+
 	run_tests(Config, OtherTests).
+
+
+%
+%
+%
+outer_proper_test(Config, ReqEntry, RepEntry) ->
+	%io:format("    Request Content..: ~n~p~n", [ReqEntry]),
+	%io:format("    Reply Content....: ~n~p~n", [RepEntry]),
+	?FORALL(ConfigWithGeneratedVars, Config, inner_proper_test(ConfigWithGeneratedVars, ReqEntry, RepEntry)).
+
+
+%
+%
+%
+inner_proper_test(Config, ReqEntry, RepEntry) -> 
+	%Info = [ {Name, Value} || ValueList = #var{value=Value, name=Name}<-Config#resttcfg.var_list, is_record(ValueList, var)],
+	%io:format("Vars....: ~p~n", [Info]),
+	
+	ServerReply = stat_req(ReqEntry),
+	case evaluate_server_reply(Config, RepEntry#reply.match_list, ServerReply) of
+		{failed, _FailedReason} ->
+			%io:format("    Result: Failed (~p)~n", [FailedReason]),
+			false;
+		{ok} ->
+			%io:format("    Result: Passed~n"),
+			true
+	end.
 
 
 %
