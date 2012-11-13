@@ -516,8 +516,21 @@ quickcheck_test() ->
 			#var{name="vMinutesG", type=integer, is_generated=true},
 			#var{name="vFloatPercentG", type=float, def={0.0, 1.0}, is_generated=true} ],
 
-	Requests = [#request{name="req1", host="http://maps.googleapis.com", path="/maps/api/geocode/json", 
-				params=[{"address", "Berlin,Germany"}, {"sensor", "false"}], method=get}],
+	Requests = [#request{
+					name="req1", 
+					host="http://maps.googleapis.com", 
+					path="/maps/api/geocode/json", 
+					params=[{"address", "Berlin,Germany"}, {"sensor", "false"}], 
+					method=get},
+				#request{
+					name="req2", 
+					host="http://maps.googleapis.com", 
+					path="/maps/api/geocode/json", 
+					params=[{"latlng", "40.714224,-73.961452"}, {"sensor", "false"}], 
+					method=get}
+
+				],
+
 
 	Replies = [{reply, 
 				"rep1",  
