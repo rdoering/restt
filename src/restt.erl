@@ -568,7 +568,6 @@ quickcheck_test() ->
 					path="/maps/api/geocode/json", 
 					params=[{"latlng", "40.714224,-73.961452"}, {"sensor", "false"}], 
 					method=get}
-
 				],
 
 
@@ -619,14 +618,27 @@ quickcheck_test() ->
 				  				{"types",[<<"locality">>,<<"political">>]}]}]},
 		  				{"status",<<"OK">>}]}
 					}
-				] 
-			}],
+				]},
+			{reply,
+				"rep2",
+				[	{status, 200},
+					{json_body, 
+						{obj,[{"results",
+        					 [{obj,[{"elevation",1608.637939453125},
+     				          {"location",{obj,[{"lat",39.7391536},{"lng",-104.9847034}]}},
+     				          {"resolution",4.771975994110107}]},
+     				    {obj,[{"elevation",-50.78903579711914},
+     				          {"location",{obj,[{"lat",36.455556},{"lng",-116.866667}]}},
+     				          {"resolution",19.08790397644043}]}]},
+     				  {"status",<<"OK">>}]} }]}
+			],
 			
 	Tests = [{test, "test1", "req1", "rep1", 100},
 			 {test, "test2", "req2", "rep1", 100},
 			 {test, "test3", "req1", "rep2", 100},
 			 {test, "test4", "req2", "rep2", 100},
-			 {test, "test5", "req1", "rep1", 100}],
+			 {test, "test5", "req1", "rep1", 100},
+			 {test, "test6", "req2", "rep2", 100}],
 
 	Config = #resttcfg{var_list=Vars, req_list=Requests, rep_list=Replies, test_list=Tests},
 	quickcheck(Config).
@@ -762,9 +774,16 @@ tool_get_response_as_json_test() ->
 	Request2 = #request{
 		name="req2", 
 		host="http://maps.googleapis.com", 
+		path="/maps/api/geocode/json", 
+		params=[{"latlng", "40.714224,-73.961452"}, {"sensor", "false"}], 
+		method=get},
+	Request3 = #request{
+		name="req3", 
+		host="http://maps.googleapis.com", 
 		path="/maps/api/elevation/json", 
 		params=[{"locations", "39.7391536,-104.9847034|36.455556,-116.866667"}, {"sensor", "false"}], 
 		method=get},
 
-	tool_get_response_as_json(Request1),
-	tool_get_response_as_json(Request2).
+	io:format("----------------[ ~p ]-------------------~n ~p ~n~n~n", [Request1#request.name, tool_get_response_as_json(Request1, true)]),
+	io:format("----------------[ ~p ]-------------------~n ~p ~n~n~n", [Request2#request.name, tool_get_response_as_json(Request2, true)]),
+	io:format("----------------[ ~p ]-------------------~n ~p ~n~n~n", [Request3#request.name, tool_get_response_as_json(Request3, true)]).
