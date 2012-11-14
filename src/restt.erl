@@ -24,7 +24,7 @@
 	quickcheck/1,
 	param_to_str/3,
 	param_to_str/1,
-	prop_test/1,
+	tool_get_response_as_json/1,
 	test1/0,
 	day/0
 	]).
@@ -55,7 +55,7 @@
 -type jsonnum() :: integer() | float().
 -type jsonstr() :: binary().
 -type keyValueList() :: [{string(), string()}].
--record(request, {name, host, path, params, method, header=[], body=[]}).	
+-record(request, {name, host, path="", params=[], method, header=[], body=[]}).	
 -type request() :: #request{name::string(),
 						host::string(),
 						path::string(),
@@ -75,10 +75,12 @@
 					| {ibrowse_req_id, Req_id::term()} | {error, Reason::term()}.
 -spec stat_req(Parameters::request()) -> response().
 stat_req(Request=#request{}) ->
+	%io:format("stat_req: Request:~p~n", [Request]),
 	ParamStr = param_to_str(Request#request.params),
 	PathAndParams = string:concat(Request#request.path, ParamStr),
+	
 	Url = string:concat(Request#request.host, PathAndParams),
-	%io:format("stat_req: ~p~n", [Url]),
+
 	ibrowse:send_req(Url, 
 					 Request#request.header, 
 					 Request#request.method,
@@ -90,6 +92,8 @@ stat_req(Request=#request{}) ->
 % Combine parameters to one string
 %
 -spec param_to_str(keyValueList()) -> UrlParams::string().
+param_to_str(undefined) ->
+	"";
 param_to_str(ListOfParams) ->
 	param_to_str(ListOfParams, "", 0).
 
@@ -104,6 +108,15 @@ param_to_str([{Key, Value} | Rest], IncompleteResultString, NumOfParam) ->
 param_to_str([], ResultString, _) ->
 	ResultString.
 
+
+%
+%
+%
+initiate_libs() ->
+	application:start(sasl),
+	application:start(ibrowse).
+
+
 %
 % Run REST test
 %
@@ -111,8 +124,7 @@ param_to_str([], ResultString, _) ->
 %
 -spec quickcheck(resttcfg()) -> 'ok'.
 quickcheck(Config) ->
-	application:start(sasl),
-	application:start(ibrowse),
+	initiate_libs(),
 
 	GenVarList = generate_values(Config),
 	ConfigWithProperVars = Config#resttcfg{var_list=GenVarList},
@@ -335,6 +347,34 @@ evaluate_var_def(Var=#var{name=VarName, def=[{max, Max} | Rest]}, Term) ->
 			Msg = lists:flatten(io_lib:format("Variable ~p(value:~p) is greater than ~p.", [VarName, Term, Max])),
 			{failed, [{missmatch, var},{mag, Msg}]}
 	end.
+
+
+tool_get_response_as_json(Request) ->
+	tool_get_response_as_json(Request, false).
+
+tool_get_response_as_json(Request = #request{}, GetValue) ->
+	initiate_libs(),
+
+	Response = stat_req(Request),
+	case Response of
+		{ok, _Status, _ResponseHeaders, ResponseBody} ->
+			case rfc4627:decode(ResponseBody) of
+				{ok, ResponseBodyJson, _} ->
+					case GetValue of
+						true ->
+							ResponseBodyJson;
+						_Else ->
+							io:format("~p~n", [ResponseBodyJson])
+					end;
+				_Else ->
+					{error, "JSON-parser failed", ResponseBody}
+			end;
+		_Else ->
+			{error, "Request failed", Request, Response} 
+	end;
+tool_get_response_as_json(SingleURI, GetValue) ->
+	tool_get_response_as_json(#request{host=SingleURI, method=get}, GetValue). 
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -625,9 +665,12 @@ param_to_str_test([]) ->
 %
 % Proper testing
 %
+prop_quicktest() ->
+	prop_quicktest(1000).
 
-prop_test(Repetitions) ->
+prop_quicktest(Repetitions) ->
 	proper:quickcheck(test1(), Repetitions).
+
 
 test1() ->
 	{Min, Max} = {1.0, 100.0},
@@ -707,3 +750,21 @@ mprop_test(Vars) ->
 
 
 day() -> union(['mo','tu','we','th','fr','sa','su']).
+
+
+tool_get_response_as_json_test() ->
+	Request1 = #request{
+		name="req1", 
+		host="http://maps.googleapis.com", 
+		path="/maps/api/geocode/json", 
+		params=[{"address", "Berlin,Germany"}, {"sensor", "false"}], 
+		method=get},
+	Request2 = #request{
+		name="req2", 
+		host="http://maps.googleapis.com", 
+		path="/maps/api/elevation/json", 
+		params=[{"locations", "39.7391536,-104.9847034|36.455556,-116.866667"}, {"sensor", "false"}], 
+		method=get},
+
+	tool_get_response_as_json(Request1),
+	tool_get_response_as_json(Request2).

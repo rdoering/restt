@@ -15,10 +15,10 @@ run:
 	erl -pz ebin/ deps/*/ebin
 
 run-insrc:
-	cd src;	werl -pz ../deps/*/ebin
+	cd src;	erl -pz ../deps/*/ebin
 
 wrun:
-	erl -pz ebin/ deps/*/ebin
+	werl -pz ebin/ deps/*/ebin
 
 wrun-insrc:
 	cd src;	werl -pz ../deps/*/ebin
