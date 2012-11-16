@@ -37,16 +37,29 @@
 %% @Todo Add an example
 %%
 
-% Record for static request.
 % @todo export into a header file
--type min_integer() :: integer().
--type max_integer() :: integer().
+-type min_value() :: number().
+-type max_value() :: number().
+
 -record(var, {name, type=undefined, is_generated=false, value=undefined, def={}}).
 -type var() :: #var{name::string(), 
-					type::'integer'|'float'|'string', 
+					type::'integer'|'float'|'string'|'undefined', 
 					is_generated::boolean(), 
 					value::term(),
-					def::{min_integer(), max_integer()}|{} }.
+					def::{min_value(), max_value()}|{} }.
+
+-record(const, {name, type=undefined, value=undefined, def={}}).
+-type const() :: #const{
+					name::string(), 
+					type::'integer'|'float'|'string'|'undefined', 
+					value::term(),
+					def::{min_value(), max_value()}|{} }.
+-type varlist() :: [const() | var()].
+
+-record(constcombo, {fmt = "", content=[]}).
+-type constcombo() :: #constcombo{ fmt::string(), content::[string()] }.
+%% content is a list of const-names.
+%%
 
 -type json() :: jsonobj() | jsonarray() | jsonnum() | jsonstr() | true | false | null.
 -type jsonobj() :: {obj, [{jsonkey(), json()}]}.
@@ -126,7 +139,7 @@ initiate_libs() ->
 quickcheck(Config) ->
 	initiate_libs(),
 
-	GenVarList = generate_values(Config),
+	GenVarList = initiate_const_as_proper_variables(Config),
 	ConfigWithProperVars = Config#resttcfg{var_list=GenVarList},
 	io:format("Generated Vars: ~p~n", [GenVarList]),
 
@@ -197,25 +210,146 @@ inner_proper_test(Config, ReqEntry, RepEntry) ->
 %
 %
 %
--spec generate_values(resttcfg()) -> var().
-generate_values(#resttcfg{var_list=Vars}) -> 
-	generate_value_list(Vars, []).
+-spec initiate_const_as_proper_variables(resttcfg()) -> varlist().
+initiate_const_as_proper_variables(#resttcfg{var_list=Vars}) -> 
+	initiate_const_list_as_proper_variables(Vars, []).
 
-generate_value_list([#var{is_generated=false} | Rest], Generated_Value_List) ->
-	generate_value_list(Rest, Generated_Value_List);
-generate_value_list([Var=#var{is_generated=true, type=float, def={Min, Max}} | Rest], Generated_Value_List) ->
-	generate_value_list(Rest, [Var#var{value=float(Min, Max)} | Generated_Value_List]);
-generate_value_list([Var=#var{is_generated=true, type=float, def={}} | Rest], Generated_Value_List) ->
-	generate_value_list(Rest, [Var#var{value=float()} | Generated_Value_List]);
-generate_value_list([Var=#var{is_generated=true, type=integer, def={Min, Max}} | Rest], Generated_Value_List) ->
-	generate_value_list(Rest, [Var#var{value=integer(Min, Max)} | Generated_Value_List]);
-generate_value_list([Var=#var{is_generated=true, type=integer, def={}} | Rest], Generated_Value_List) ->
-	generate_value_list(Rest, [Var#var{value=integer()} | Generated_Value_List]);
-generate_value_list([Var=#var{is_generated=true, type=string} | Rest], Generated_Value_List) ->
-	generate_value_list(Rest, [Var#var{value=string()} | Generated_Value_List]);
-generate_value_list([], Generated_Value_List) ->
+initiate_const_list_as_proper_variables([#var{} | Rest], Generated_Value_List) ->
+	initiate_const_list_as_proper_variables(Rest, Generated_Value_List);
+initiate_const_list_as_proper_variables([Var=#const{type=float, def={Min, Max}} | Rest], Generated_Value_List) ->
+	initiate_const_list_as_proper_variables(Rest, [Var#const{value=float(Min, Max)} | Generated_Value_List]);
+initiate_const_list_as_proper_variables([Var=#const{type=float, def={}} | Rest], Generated_Value_List) ->
+	initiate_const_list_as_proper_variables(Rest, [Var#const{value=float()} | Generated_Value_List]);
+initiate_const_list_as_proper_variables([Var=#const{type=integer, def={Min, Max}} | Rest], Generated_Value_List) ->
+	initiate_const_list_as_proper_variables(Rest, [Var#const{value=integer(Min, Max)} | Generated_Value_List]);
+initiate_const_list_as_proper_variables([Var=#const{type=integer, def={}} | Rest], Generated_Value_List) ->
+	initiate_const_list_as_proper_variables(Rest, [Var#const{value=integer()} | Generated_Value_List]);
+initiate_const_list_as_proper_variables([Var=#const{type=string} | Rest], Generated_Value_List) ->
+	initiate_const_list_as_proper_variables(Rest, [Var#const{value=string()} | Generated_Value_List]);
+initiate_const_list_as_proper_variables([], Generated_Value_List) ->
 	Generated_Value_List.
 
+
+%%
+%% Take the value for each const of ParameterList and create a new ParameterValueList.
+%% Use these list to create a the result-string. 
+%%
+-spec convert_constcombo_to_string(varlist(), constcombo()) -> {error, string()} | {ok, string()}.
+convert_constcombo_to_string(Vars, #constcombo{fmt=Fmt, content=ParameterList}) ->
+	ParameterValueList = convert_constcombo_to_string(Vars, lists:reverse(ParameterList), []),
+	Result = lists:flatten(io_lib:format(Fmt, ParameterValueList)),
+	{ok, Result}.
+
+convert_constcombo_to_string(Vars, [Const_name | Rest], ConvertedList) ->
+	case get_value_of_const(Vars, Const_name) of
+		{ok, StaticValue} ->
+			convert_constcombo_to_string(Vars, Rest, [StaticValue | ConvertedList]);
+		Error ->
+			Error
+	end;
+convert_constcombo_to_string(_Vars, [], CompleteConvertedParameterList) ->
+	CompleteConvertedParameterList.	
+
+
+%%
+%%
+%%
+-spec get_value_of_const(varlist(), string()) -> {ok, term()} | {error}.
+get_value_of_const(VarList, ConstName) ->
+	ValueList = [V || #const{value=V, name=Name} <- VarList, Name == ConstName],
+	case ValueList of
+		[] ->
+			{error, lists:flatten(io_lib:format("Can't find const ~p.", [ConstName]))};
+		[FirstValue | _] ->
+			{ok, FirstValue}
+	end.
+
+
+%%
+%% 
+%%
+-spec generate_static_request(varlist(), request()) -> request().
+generate_static_request(VarList, Request) ->
+	StaticParams = generate_static_keyvaluepairs(VarList, Request#request.params, []),
+	StaticHeader = generate_static_keyvaluepairs(VarList, Request#request.header, []),
+	StaticBody = "", generate_static_body(VarList, Request#request.body),
+	#request{params=StaticParams, header=StaticHeader, body=StaticBody}.
+
+
+-spec generate_static_keyvaluepairs(varlist(), keyValueList(), keyValueList()) -> {ok, keyValueList()} | {error, string()}.
+generate_static_keyvaluepairs(VarList, [ {Key, Value} | Rest], GeneratedList) ->
+	StaticKey = generate_static_string(VarList, Key),
+	StaticValue = generate_static_string(VarList, Value),
+	generate_static_keyvaluepairs(VarList, Rest, [{StaticKey, StaticValue} | GeneratedList]);
+generate_static_keyvaluepairs(_VarList, [], FinalGeneratedList) ->
+	FinalGeneratedList.
+
+
+generate_static_body(VarList, {json_body, JsonBody}) ->
+	generate_static_jsonbody(VarList, JsonBody, []);
+generate_static_body(VarList, {_, UnknownBodyContent}) ->
+	UnknownBodyContent;
+generate_static_body(VarList, UnknownBody) ->
+	UnknownBody.
+
+generate_static_jsonbody(_VarList, [], FinalJsonBody) ->
+    FinalJsonBody;
+generate_static_jsonbody(Config, {obj, Term}, JsonBody) ->
+    %io:format("Object:    ~p~n",[ExpectedReply]),
+    generate_static_jsonbody(Config, Term, JsonBody);
+generate_static_jsonbody(Config, {#var{name=VarName}, ExpectedReplyValue}, {ReplyKey, ReplyValue}) ->
+    %io:format("Var-Name for a Key:    ~p == ~p~n",[VarName, ReplyKey]),
+    evaluate_var(Config, VarName, ReplyKey),
+    generate_static_jsonbody(Config, ExpectedReplyValue, ReplyValue);
+generate_static_jsonbody(Config, {Key, ExpectedReplyValue}, {Key, ReplyValue}) when is_list(Key)->
+    %io:format("Key:    ~p ~n",[Key]),
+    generate_static_jsonbody(Config, ExpectedReplyValue, ReplyValue);
+generate_static_jsonbody(Config, [ExpectedReplyKeyValue | ExpectedReplyRest], [ReplyKeyValue | ReplyRest]) ->
+    %io:format("Listelem:    ~p~n",[ExpectedReplyKeyValue]),
+    case generate_static_jsonbody(Config, ExpectedReplyKeyValue, ReplyKeyValue) of
+        ok -> generate_static_jsonbody(Config, ExpectedReplyRest, ReplyRest);
+        FailedReason -> FailedReason
+    end;
+% Here we look for vars at the value.
+generate_static_jsonbody(Config, #var{name=VarName}, ReplyValue) ->
+    %io:format("Var-Name for a Value:    ~p == ~p~n",[VarName, ReplyValue]),
+    evaluate_var(Config, VarName, ReplyValue);
+generate_static_jsonbody(_VarList, Value, Value) ->
+    %io:format("Single Value:    ~p~n",[Value]),
+	ok;
+generate_static_jsonbody(_VarList, ExpectedReplyValue, ReplyValue) ->
+    {failed, {jbody, ExpectedReplyValue, ReplyValue}}.
+
+
+
+
+-spec generate_static_string(varlist(), constcombo() | const() | term()) -> string(). 
+generate_static_string(VarList, V)->
+	Term = generate_static_value(VarList, V),
+	convert_to_string_if_necessary(Term).
+
+
+-spec convert_to_string_if_necessary(string() | term()) -> string().
+convert_to_string_if_necessary(List) when is_list(List) ->
+	case io_lib:printable_list(List) of
+		true  ->
+			List;
+		_Else -> 
+			io_lib:format("~p", [List])
+	end;
+convert_to_string_if_necessary(Term) ->
+	io_lib:format("~p", [Term]).
+
+
+-spec generate_static_value(varlist(), constcombo() | var() | term()) -> term(). 
+generate_static_value(VarList, V=#constcombo{})->
+	{ok, Value} = convert_constcombo_to_string(VarList, V),
+	Value;
+generate_static_value(VarList, #const{name=Name})->
+	{ok, Value} = get_value_of_const(VarList, Name),
+	Value;
+generate_static_value(_VarList, Content) ->
+	Content.
 
 %%
 %% @doc Evaluate response from server.
@@ -349,6 +483,9 @@ evaluate_var_def(Var=#var{name=VarName, def=[{max, Max} | Rest]}, Term) ->
 	end.
 
 
+%
+%
+%
 tool_get_response_as_json(Request) ->
 	tool_get_response_as_json(Request, false).
 
@@ -552,9 +689,9 @@ quickcheck_test() ->
 	Vars = [#var{name="vHours", type=integer, def={0, 24}},
 			#var{name="vMinutes", type=integer, def={0, 60}},
 			#var{name="vFloatPercent", type=float, def={0.0, 1.0}},
-			#var{name="vHoursG", type=integer, def={0, 24}, is_generated=true},
-			#var{name="vMinutesG", type=integer, is_generated=true},
-			#var{name="vFloatPercentG", type=float, def={0.0, 1.0}, is_generated=true} ],
+			#const{name="vHoursG", type=integer, def={0, 24}},
+			#const{name="vMinutesG", type=integer},
+			#const{name="vFloatPercentG", type=float, def={0.0, 1.0}} ],
 
 	Requests = [#request{
 					name="req1", 
@@ -787,3 +924,32 @@ tool_get_response_as_json_test() ->
 	io:format("----------------[ ~p ]-------------------~n ~p ~n~n~n", [Request1#request.name, tool_get_response_as_json(Request1, true)]),
 	io:format("----------------[ ~p ]-------------------~n ~p ~n~n~n", [Request2#request.name, tool_get_response_as_json(Request2, true)]),
 	io:format("----------------[ ~p ]-------------------~n ~p ~n~n~n", [Request3#request.name, tool_get_response_as_json(Request3, true)]).
+
+
+convert_constcombo_to_string_test() ->
+	Vars = [#const{name="vHoursG", type=integer, value=12, def={0, 24}},
+			#const{name="vMinutesG", type=integer, value=2},
+			#const{name="vFloatPercentG", type=float, value=0.33, def={0.0, 1.0}} ],
+	?assertMatch({ok, "12:2"}, convert_constcombo_to_string(Vars, #constcombo{fmt="~p:~p", content=["vHoursG", "vMinutesG"]})).
+
+
+generate_static_request_test() ->
+	Vars = [#const{name="vLat", type=float, value=0.000011, def={-180, 180}},
+			#const{name="vLon", type=float, value=0.000022, def={-180, 180}}
+			#const{name="test", type=integer, value=666 } ],
+	Request = #request{
+		name="req2", 
+		host="http://maps.googleapis.com", 
+		path="/maps/api/geocode/json", 
+		params=[{"latlng", {constcombo, "~p,~p", ["vLat", "vLon"]}}, {"sensor", "false"}, {#const{name="test"}, "Inhalt"}], 
+		method=get,
+		body={json_body, 
+						{obj,[{"results",
+        					 [{obj,[{{"elevation"},1608.637939453125},
+     				          {"location",{obj,[{"lat",39.7391536},{"lng",-104.9847034}]}},
+     				          {#const{name="test"},4.771975994110107}]},
+     				    {obj,[{"elevation",-50.78903579711914},
+     				          {#constcombo{fmt="hallo~p", content=["test"]},{obj,[{"lat",36.455556},{"lng",-116.866667}]}},
+     				          {"resolution",#const{name="vLon"}}]}]},
+     				  {"status",<<"OK">>}]} }},
+	generate_static_request(Vars, Request#request{body=[]}).
