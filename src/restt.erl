@@ -54,11 +54,13 @@
 					type::'integer'|'float'|'string'|'undefined', 
 					value::term(),
 					def::{min_value(), max_value()}|{} }.
+-record(constref, {name}).
+-type constref() :: #constref{name::string()}.
 -type varlist() :: [const() | var()].
 
--record(constcombo, {fmt = "", content=[]}).
--type constcombo() :: #constcombo{ fmt::string(), content::[string()] }.
-%% content is a list of const-names.
+-record(constcombo, {fmt = "", names=[]}).
+-type constcombo() :: #constcombo{ fmt::string(), names::[string()] }.
+%% names is a list of const-names.
 %%
 
 -type json() :: jsonobj() | jsonarray() | jsonnum() | jsonstr() | true | false | null.
@@ -235,8 +237,8 @@ initiate_const_list_as_proper_variables([], Generated_Value_List) ->
 %% Use these list to create a the result-string. 
 %%
 -spec convert_constcombo_to_string(varlist(), constcombo()) -> {error, string()} | {ok, string()}.
-convert_constcombo_to_string(Vars, #constcombo{fmt=Fmt, content=ParameterList}) ->
-	ParameterValueList = convert_constcombo_to_string(Vars, lists:reverse(ParameterList), []),
+convert_constcombo_to_string(Vars, #constcombo{fmt=Fmt, names=ParameterList}) ->
+	{ok, ParameterValueList} = convert_constcombo_to_string(Vars, lists:reverse(ParameterList), []),
 	Result = lists:flatten(io_lib:format(Fmt, ParameterValueList)),
 	{ok, Result}.
 
@@ -248,7 +250,7 @@ convert_constcombo_to_string(Vars, [Const_name | Rest], ConvertedList) ->
 			Error
 	end;
 convert_constcombo_to_string(_Vars, [], CompleteConvertedParameterList) ->
-	CompleteConvertedParameterList.	
+	{ok, CompleteConvertedParameterList}.
 
 
 %%
@@ -272,7 +274,7 @@ get_value_of_const(VarList, ConstName) ->
 generate_static_request(VarList, Request) ->
 	StaticParams = generate_static_keyvaluepairs(VarList, Request#request.params, []),
 	StaticHeader = generate_static_keyvaluepairs(VarList, Request#request.header, []),
-	StaticBody = "", generate_static_body(VarList, Request#request.body),
+	StaticBody = generate_static_body(VarList, Request#request.body),
 	#request{params=StaticParams, header=StaticHeader, body=StaticBody}.
 
 
@@ -285,11 +287,10 @@ generate_static_keyvaluepairs(_VarList, [], FinalGeneratedList) ->
 	FinalGeneratedList.
 
 
+-spec generate_static_body(varlist(), {json_body, json()}) -> {ok, json()} | {error}.
 generate_static_body(VarList, {json_body, JsonBody}) ->
 	generate_static_jsonbody(VarList, JsonBody, []);
-generate_static_body(VarList, {_, UnknownBodyContent}) ->
-	UnknownBodyContent;
-generate_static_body(VarList, UnknownBody) ->
+generate_static_body(_VarList, UnknownBody) ->
 	UnknownBody.
 
 generate_static_jsonbody(_VarList, [], FinalJsonBody) ->
@@ -297,33 +298,30 @@ generate_static_jsonbody(_VarList, [], FinalJsonBody) ->
 generate_static_jsonbody(Config, {obj, Term}, JsonBody) ->
     %io:format("Object:    ~p~n",[ExpectedReply]),
     generate_static_jsonbody(Config, Term, JsonBody);
-generate_static_jsonbody(Config, {#var{name=VarName}, ExpectedReplyValue}, {ReplyKey, ReplyValue}) ->
+generate_static_jsonbody(Config, {#var{name=VarName}, Value}, JsonBody) ->
     %io:format("Var-Name for a Key:    ~p == ~p~n",[VarName, ReplyKey]),
-    evaluate_var(Config, VarName, ReplyKey),
-    generate_static_jsonbody(Config, ExpectedReplyValue, ReplyValue);
-generate_static_jsonbody(Config, {Key, ExpectedReplyValue}, {Key, ReplyValue}) when is_list(Key)->
+    evaluate_var(Config, VarName, JsonBody),
+    generate_static_jsonbody(Config, Value, JsonBody);
+generate_static_jsonbody(Config, {Key, Value}, JsonBody) when is_list(Key)->
     %io:format("Key:    ~p ~n",[Key]),
-    generate_static_jsonbody(Config, ExpectedReplyValue, ReplyValue);
-generate_static_jsonbody(Config, [ExpectedReplyKeyValue | ExpectedReplyRest], [ReplyKeyValue | ReplyRest]) ->
+    generate_static_jsonbody(Config, Value, JsonBody);
+generate_static_jsonbody(Config, [KeyValue | Rest], JsonBody) ->
     %io:format("Listelem:    ~p~n",[ExpectedReplyKeyValue]),
-    case generate_static_jsonbody(Config, ExpectedReplyKeyValue, ReplyKeyValue) of
-        ok -> generate_static_jsonbody(Config, ExpectedReplyRest, ReplyRest);
+    case generate_static_jsonbody(Config, KeyValue, JsonBody) of
+        ok -> generate_static_jsonbody(Config, Rest, JsonBody);
         FailedReason -> FailedReason
     end;
 % Here we look for vars at the value.
-generate_static_jsonbody(Config, #var{name=VarName}, ReplyValue) ->
-    %io:format("Var-Name for a Value:    ~p == ~p~n",[VarName, ReplyValue]),
-    evaluate_var(Config, VarName, ReplyValue);
-generate_static_jsonbody(_VarList, Value, Value) ->
+generate_static_jsonbody(Config, #constref{name=VarName}, JsonBody) ->
+    io:format("Var-Name for a Value:    ~p == ~p~n",[VarName, JsonBody]);
+generate_static_jsonbody(_VarList, Value, JsonBody) ->
     %io:format("Single Value:    ~p~n",[Value]),
 	ok;
-generate_static_jsonbody(_VarList, ExpectedReplyValue, ReplyValue) ->
-    {failed, {jbody, ExpectedReplyValue, ReplyValue}}.
+generate_static_jsonbody(_VarList, Value, JsonBody) ->
+    {error, {jbody, Value, JsonBody}}.
 
 
-
-
--spec generate_static_string(varlist(), constcombo() | const() | term()) -> string(). 
+-spec generate_static_string(varlist(), constcombo() | constref() | term()) -> string(). 
 generate_static_string(VarList, V)->
 	Term = generate_static_value(VarList, V),
 	convert_to_string_if_necessary(Term).
@@ -341,11 +339,11 @@ convert_to_string_if_necessary(Term) ->
 	io_lib:format("~p", [Term]).
 
 
--spec generate_static_value(varlist(), constcombo() | var() | term()) -> term(). 
+-spec generate_static_value(varlist(), constcombo() | constref() | term()) -> term(). 
 generate_static_value(VarList, V=#constcombo{})->
 	{ok, Value} = convert_constcombo_to_string(VarList, V),
 	Value;
-generate_static_value(VarList, #const{name=Name})->
+generate_static_value(VarList, #constref{name=Name})->
 	{ok, Value} = get_value_of_const(VarList, Name),
 	Value;
 generate_static_value(_VarList, Content) ->
@@ -930,26 +928,30 @@ convert_constcombo_to_string_test() ->
 	Vars = [#const{name="vHoursG", type=integer, value=12, def={0, 24}},
 			#const{name="vMinutesG", type=integer, value=2},
 			#const{name="vFloatPercentG", type=float, value=0.33, def={0.0, 1.0}} ],
-	?assertMatch({ok, "12:2"}, convert_constcombo_to_string(Vars, #constcombo{fmt="~p:~p", content=["vHoursG", "vMinutesG"]})).
+	?assertMatch({ok, "12:2"}, convert_constcombo_to_string(Vars, #constcombo{fmt="~p:~p", names=["vHoursG", "vMinutesG"]})).
 
 
 generate_static_request_test() ->
 	Vars = [#const{name="vLat", type=float, value=0.000011, def={-180, 180}},
-			#const{name="vLon", type=float, value=0.000022, def={-180, 180}}
+			#const{name="vLon", type=float, value=0.000022, def={-180, 180}},
 			#const{name="test", type=integer, value=666 } ],
 	Request = #request{
 		name="req2", 
 		host="http://maps.googleapis.com", 
 		path="/maps/api/geocode/json", 
-		params=[{"latlng", {constcombo, "~p,~p", ["vLat", "vLon"]}}, {"sensor", "false"}, {#const{name="test"}, "Inhalt"}], 
+		params=[
+			{"latlng", #constcombo{fmt="~p,~p", names=["vLat", "vLon"]}},
+			{"latlng2", #constref{name="vLon"}}, 
+			{"sensor", "false"}, 
+			{#constref{name="test"}, "Inhalt"}], 
 		method=get,
 		body={json_body, 
 						{obj,[{"results",
         					 [{obj,[{{"elevation"},1608.637939453125},
      				          {"location",{obj,[{"lat",39.7391536},{"lng",-104.9847034}]}},
-     				          {#const{name="test"},4.771975994110107}]},
+     				          {#constref{name="test"},4.771975994110107}]},
      				    {obj,[{"elevation",-50.78903579711914},
-     				          {#constcombo{fmt="hallo~p", content=["test"]},{obj,[{"lat",36.455556},{"lng",-116.866667}]}},
-     				          {"resolution",#const{name="vLon"}}]}]},
+     				          {#constcombo{fmt="hallo~p", names=["test"]},{obj,[{"lat",36.455556},{"lng",-116.866667}]}},
+     				          {"resolution",#constref{name="vLon"}}]}]},
      				  {"status",<<"OK">>}]} }},
-	generate_static_request(Vars, Request#request{body=[]}).
+	generate_static_request(Vars, Request).
