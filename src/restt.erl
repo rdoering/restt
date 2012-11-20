@@ -63,12 +63,14 @@
 %% names is a list of const-names.
 %%
 
+%% Defined at http://tonyg.github.com/erlang-rfc4627/doc/
 -type json() :: jsonobj() | jsonarray() | jsonnum() | jsonstr() | true | false | null.
 -type jsonobj() :: {obj, [{jsonkey(), json()}]}.
 -type jsonkey() :: string().
 -type jsonarray() :: [json()].
 -type jsonnum() :: integer() | float().
 -type jsonstr() :: binary().
+
 -type keyValueList() :: [{string(), string()}].
 -record(request, {name, host, path="", params=[], method, header=[], body=[]}).	
 -type request() :: #request{name::string(),
@@ -289,36 +291,21 @@ generate_static_keyvaluepairs(_VarList, [], FinalGeneratedList) ->
 
 -spec generate_static_body(varlist(), {json_body, json()}) -> {ok, json()} | {error}.
 generate_static_body(VarList, {json_body, JsonBody}) ->
-	generate_static_jsonbody(VarList, JsonBody, []);
+	generate_static_jsonbody(VarList, JsonBody);
 generate_static_body(_VarList, UnknownBody) ->
 	UnknownBody.
 
-generate_static_jsonbody(_VarList, [], FinalJsonBody) ->
-    FinalJsonBody;
-generate_static_jsonbody(Config, {obj, Term}, JsonBody) ->
-    %io:format("Object:    ~p~n",[ExpectedReply]),
-    generate_static_jsonbody(Config, Term, JsonBody);
-generate_static_jsonbody(Config, {#var{name=VarName}, Value}, JsonBody) ->
-    %io:format("Var-Name for a Key:    ~p == ~p~n",[VarName, ReplyKey]),
-    evaluate_var(Config, VarName, JsonBody),
-    generate_static_jsonbody(Config, Value, JsonBody);
-generate_static_jsonbody(Config, {Key, Value}, JsonBody) when is_list(Key)->
-    %io:format("Key:    ~p ~n",[Key]),
-    generate_static_jsonbody(Config, Value, JsonBody);
-generate_static_jsonbody(Config, [KeyValue | Rest], JsonBody) ->
-    %io:format("Listelem:    ~p~n",[ExpectedReplyKeyValue]),
-    case generate_static_jsonbody(Config, KeyValue, JsonBody) of
-        ok -> generate_static_jsonbody(Config, Rest, JsonBody);
-        FailedReason -> FailedReason
-    end;
-% Here we look for vars at the value.
-generate_static_jsonbody(Config, #constref{name=VarName}, JsonBody) ->
-    io:format("Var-Name for a Value:    ~p == ~p~n",[VarName, JsonBody]);
-generate_static_jsonbody(_VarList, Value, JsonBody) ->
-    %io:format("Single Value:    ~p~n",[Value]),
-	ok;
-generate_static_jsonbody(_VarList, Value, JsonBody) ->
-    {error, {jbody, Value, JsonBody}}.
+-spec generate_static_jsonbody(varlist(), json()) -> json().
+generate_static_jsonbody(VarList, {obj, [{Key, Value}]}) ->
+    {obj, generate_static_string(VarList, Key), generate_static_jsonbody(VarList, Value)};
+generate_static_jsonbody(VarList, [Json]) ->
+	[generate_static_jsonbody(VarList, Json)];
+generate_static_jsonbody(VarList, #constref{name=Name})->
+	get_value_of_const(VarList, Name);
+generate_static_jsonbody(VarList, ComboToGet=#constcombo{})->
+	convert_constcombo_to_string(VarList, ComboToGet);
+generate_static_jsonbody(_VarList, Term) ->
+	Term.
 
 
 -spec generate_static_string(varlist(), constcombo() | constref() | term()) -> string(). 
