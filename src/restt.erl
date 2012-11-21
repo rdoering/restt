@@ -296,16 +296,23 @@ generate_static_body(_VarList, UnknownBody) ->
 	UnknownBody.
 
 -spec generate_static_jsonbody(varlist(), json()) -> json().
-generate_static_jsonbody(VarList, {obj, [{Key, Value}]}) ->
-    {obj, generate_static_string(VarList, Key), generate_static_jsonbody(VarList, Value)};
-generate_static_jsonbody(VarList, [Json]) ->
-	[generate_static_jsonbody(VarList, Json)];
+generate_static_jsonbody(VarList, {obj, KeyValueList}) ->
+    {obj, generate_static_json_keyvalue_list(VarList, KeyValueList)};
+generate_static_jsonbody(_VarList, []) ->
+	[];
+generate_static_jsonbody(VarList, [Json | RestJsonList]) ->
+	[generate_static_jsonbody(VarList, Json) | generate_static_jsonbody(VarList, RestJsonList)];
 generate_static_jsonbody(VarList, #constref{name=Name})->
 	get_value_of_const(VarList, Name);
 generate_static_jsonbody(VarList, ComboToGet=#constcombo{})->
 	convert_constcombo_to_string(VarList, ComboToGet);
 generate_static_jsonbody(_VarList, Term) ->
 	Term.
+
+generate_static_json_keyvalue_list(_VarList, []) ->
+	[];
+generate_static_json_keyvalue_list(VarList, [{Key, Value} | Rest]) ->
+	[{generate_static_string(VarList, Key), generate_static_jsonbody(VarList, Value)} | generate_static_json_keyvalue_list(VarList, Rest)].
 
 
 -spec generate_static_string(varlist(), constcombo() | constref() | term()) -> string(). 
@@ -934,7 +941,7 @@ generate_static_request_test() ->
 		method=get,
 		body={json_body, 
 						{obj,[{"results",
-        					 [{obj,[{{"elevation"},1608.637939453125},
+        					 [{obj,[{"elevation",1608.637939453125},
      				          {"location",{obj,[{"lat",39.7391536},{"lng",-104.9847034}]}},
      				          {#constref{name="test"},4.771975994110107}]},
      				    {obj,[{"elevation",-50.78903579711914},
