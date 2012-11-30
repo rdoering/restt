@@ -90,10 +90,10 @@
 %
 -type response() :: {ok, Status::integer(), ResponseHeaders::term(), ResponseBody::term()} 
 					| {ibrowse_req_id, Req_id::term()} | {error, Reason::term()}.
--spec stat_req(Parameters::request()) -> response().
-stat_req(Request=#request{}) ->
-	%io:format("stat_req: Request:~p~n", [Request]),
-	ParamStr = param_to_str(Request#request.params),
+-spec http_req(varlist(), request()) -> response().
+http_req(VarList, Request=#request{}) ->
+	%io:format("http_req: Request:~p~n", [Request]),
+	ParamStr = param_to_str(VarList, Request#request.params),
 	PathAndParams = string:concat(Request#request.path, ParamStr),
 	
 	Url = string:concat(Request#request.host, PathAndParams),
@@ -104,24 +104,38 @@ stat_req(Request=#request{}) ->
 					 Request#request.body, 
 					 []).
 
+-spec http_req(request()) -> response().
+http_req(Request) ->
+	http_req([], Request).
+
 
 %
-% Combine parameters to one string
+% Combine parameters to one URL string
 %
--spec param_to_str(keyValueList()) -> UrlParams::string().
+-spec param_to_str(varlist(), keyValueList()) -> UrlParams::string().
+param_to_str(VarList, KeyValueList) ->
+	param_to_str(generate_static_keyvaluepairs(VarList, KeyValueList)).
+
 param_to_str(undefined) ->
 	"";
 param_to_str(ListOfParams) ->
 	param_to_str(ListOfParams, "", 0).
 
 param_to_str([{Key, Value} | Rest], IncompleteResultString, NumOfParam) ->
+	
+	% Chose separator
 	case NumOfParam of
 		0 ->
 			StringWithDelimiter = "?";
 		_ ->
 			StringWithDelimiter = string:concat(IncompleteResultString, "&")
 	end,
-	param_to_str(Rest, string:concat(StringWithDelimiter, string:concat(Key, string:concat("=", Value))), NumOfParam + 1);
+
+	% Process params
+	NewIncompleteResultString = string:concat(StringWithDelimiter, string:concat(Key, string:concat("=", Value))),
+	
+	% Recursion
+	param_to_str(Rest, NewIncompleteResultString, NumOfParam + 1);
 param_to_str([], ResultString, _) ->
 	ResultString.
 
@@ -200,7 +214,7 @@ inner_proper_test(Config, ReqEntry, RepEntry) ->
 	%Info = [ {Name, Value} || ValueList = #var{value=Value, name=Name}<-Config#resttcfg.var_list, is_record(ValueList, var)],
 	%io:format("Vars....: ~p~n", [Info]),
 	
-	ServerReply = stat_req(ReqEntry),
+	ServerReply = http_req(Config#resttcfg.var_list, ReqEntry),
 	case evaluate_server_reply(Config, RepEntry#reply.match_list, ServerReply) of
 		{failed, _FailedReason} ->
 			%io:format("    Result: Failed (~p)~n", [FailedReason]),
@@ -274,11 +288,16 @@ get_value_of_const(VarList, ConstName) ->
 %%
 -spec generate_static_request(varlist(), request()) -> request().
 generate_static_request(VarList, Request) ->
-	StaticParams = generate_static_keyvaluepairs(VarList, Request#request.params, []),
-	StaticHeader = generate_static_keyvaluepairs(VarList, Request#request.header, []),
+	StaticParams = generate_static_keyvaluepairs(VarList, Request#request.params),
+	StaticHeader = generate_static_keyvaluepairs(VarList, Request#request.header),
 	StaticBody = generate_static_body(VarList, Request#request.body),
 	#request{params=StaticParams, header=StaticHeader, body=StaticBody}.
 
+
+% Just a wrapper
+-spec generate_static_keyvaluepairs(varlist(), keyValueList()) -> {ok, keyValueList()} | {error, string()}.
+generate_static_keyvaluepairs(VarList, KeyValueList) ->
+	generate_static_keyvaluepairs(VarList, KeyValueList, []).
 
 -spec generate_static_keyvaluepairs(varlist(), keyValueList(), keyValueList()) -> {ok, keyValueList()} | {error, string()}.
 generate_static_keyvaluepairs(VarList, [ {Key, Value} | Rest], GeneratedList) ->
@@ -484,7 +503,7 @@ tool_get_response_as_json(Request) ->
 tool_get_response_as_json(Request = #request{}, GetValue) ->
 	initiate_libs(),
 
-	Response = stat_req(Request),
+	Response = http_req(Request),
 	case Response of
 		{ok, _Status, _ResponseHeaders, ResponseBody} ->
 			case rfc4627:decode(ResponseBody) of
@@ -776,7 +795,7 @@ quickcheck_test() ->
 %
 % Request for http://maps.googleapis.com/maps/api/geocode/json?address=Berlin,Germany&sensor=false
 %
-stat_req_test() ->
+http_req_test() ->
 	A = #request{name="sample1",
 		host="http://maps.googleapis.com", 
 		path="/maps/api/geocode/json", 
@@ -785,7 +804,7 @@ stat_req_test() ->
 		method=get},
 
 	io:format("Request: ~n~p~n", [A]),
-	Res = stat_req(A),
+	Res = http_req(A),
 	io:format("Result: ~n~p~n", [Res]),
 	{Rc, _State, _Header, _Body} = Res,
 	?assert( Rc == ok).
