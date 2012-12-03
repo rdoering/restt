@@ -349,7 +349,8 @@ convert_to_string_if_necessary(List) when is_list(List) ->
 			io_lib:format("~p", [List])
 	end;
 convert_to_string_if_necessary(Term) ->
-	io_lib:format("~p", [Term]).
+	[String] = io_lib:format("~p", [Term]),
+	String.
 
 
 -spec generate_static_value(varlist(), constcombo() | constref() | term()) -> term(). 
