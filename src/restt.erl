@@ -699,7 +699,9 @@ evaluate_json_test() ->
 
 
 quickcheck_test() ->
-	Vars = [#var{name="vHours", type=integer, def={0, 24}},
+	Vars = [#const{name="vLat", type=float, value=0.000011, def={-180, 180}},
+			#const{name="vLon", type=float, value=0.000022, def={-180, 180}},
+			#var{name="vHours", type=integer, def={0, 24}},
 			#var{name="vMinutes", type=integer, def={0, 60}},
 			#var{name="vFloatPercent", type=float, def={0.0, 1.0}},
 			#const{name="vHoursG", type=integer, def={0, 24}},
@@ -716,7 +718,8 @@ quickcheck_test() ->
 					name="req2", 
 					host="http://maps.googleapis.com", 
 					path="/maps/api/geocode/json", 
-					params=[{"latlng", "40.714224,-73.961452"}, {"sensor", "false"}], 
+					params=[{"latlng", #constcombo{fmt="~p,~p", names=["vLat", "vLon"]}}, 
+						{"sensor", "false"}], 
 					method=get}
 				],
 
