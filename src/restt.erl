@@ -297,7 +297,7 @@ generate_static_request(VarList, Request) ->
 % Just a wrapper
 -spec generate_static_keyvaluepairs(varlist(), keyValueList()) -> {ok, keyValueList()} | {error, string()}.
 generate_static_keyvaluepairs(VarList, KeyValueList) ->
-	generate_static_keyvaluepairs(VarList, KeyValueList, []).
+	generate_static_keyvaluepairs(VarList, lists:reverse(KeyValueList), []).
 
 -spec generate_static_keyvaluepairs(varlist(), keyValueList(), keyValueList()) -> {ok, keyValueList()} | {error, string()}.
 generate_static_keyvaluepairs(VarList, [ {Key, Value} | Rest], GeneratedList) ->
@@ -948,6 +948,7 @@ generate_static_request_test() ->
 	Vars = [#const{name="vLat", type=float, value=0.000011, def={-180, 180}},
 			#const{name="vLon", type=float, value=0.000022, def={-180, 180}},
 			#const{name="test", type=integer, value=666 } ],
+
 	Request = #request{
 		name="req2", 
 		host="http://maps.googleapis.com", 
@@ -967,4 +968,5 @@ generate_static_request_test() ->
      				          {#constcombo{fmt="hallo~p", names=["test"]},{obj,[{"lat",36.455556},{"lng",-116.866667}]}},
      				          {"resolution",#constref{name="vLon"}}]}]},
      				  {"status",<<"OK">>}]} }},
+
 	generate_static_request(Vars, Request).
