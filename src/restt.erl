@@ -157,9 +157,8 @@ initiate_libs() ->
 quickcheck(Config) ->
 	initiate_libs(),
 
-	GenVarList = initiate_const_as_proper_variables(Config),
-	ConfigWithProperVars = Config#resttcfg{var_list=GenVarList},
-	io:format("Generated Vars: ~p~n", [GenVarList]),
+	ConfigWithProperVars = initiate_const_as_proper_variables(Config),
+	io:format("Generated Vars: ~p~n", [Config#resttcfg.var_list]),
 
 	ListOfTests = ConfigWithProperVars#resttcfg.test_list,
 	run_tests(ConfigWithProperVars, ListOfTests).
@@ -228,9 +227,10 @@ inner_proper_test(Config, ReqEntry, RepEntry) ->
 %
 %
 %
--spec initiate_const_as_proper_variables(resttcfg()) -> varlist().
-initiate_const_as_proper_variables(#resttcfg{var_list=Vars}) -> 
-	initiate_const_list_as_proper_variables(Vars, []).
+-spec initiate_const_as_proper_variables(resttcfg()) -> resttcfg().
+initiate_const_as_proper_variables(ResttConfig = #resttcfg{var_list=Vars}) -> 
+	NewVars = initiate_const_list_as_proper_variables(Vars, []),
+	ResttConfig#resttcfg{var_list=NewVars}.
 
 initiate_const_list_as_proper_variables([#var{} | Rest], Generated_Value_List) ->
 	initiate_const_list_as_proper_variables(Rest, Generated_Value_List);
@@ -322,7 +322,8 @@ generate_static_jsonbody(_VarList, []) ->
 generate_static_jsonbody(VarList, [Json | RestJsonList]) ->
 	[generate_static_jsonbody(VarList, Json) | generate_static_jsonbody(VarList, RestJsonList)];
 generate_static_jsonbody(VarList, #constref{name=Name})->
-	get_value_of_const(VarList, Name);
+	{ok, Value} = get_value_of_const(VarList, Name),
+	Value;
 generate_static_jsonbody(VarList, ComboToGet=#constcombo{})->
 	convert_constcombo_to_string(VarList, ComboToGet);
 generate_static_jsonbody(_VarList, Term) ->
@@ -962,7 +963,7 @@ generate_static_request_test() ->
 		method=get,
 		body={json_body, 
 						{obj,[{"results",
-        					 [{obj,[{"elevation",1608.637939453125},
+        					 [{obj,[{"elevation", #constref{name="vLat"}},
      				          {"location",{obj,[{"lat",39.7391536},{"lng",-104.9847034}]}},
      				          {#constref{name="test"},4.771975994110107}]},
      				    {obj,[{"elevation",-50.78903579711914},
@@ -970,4 +971,5 @@ generate_static_request_test() ->
      				          {"resolution",#constref{name="vLon"}}]}]},
      				  {"status",<<"OK">>}]} }},
 
-	generate_static_request(Vars, Request).
+    generate_static_request(Vars, Request).
+    
