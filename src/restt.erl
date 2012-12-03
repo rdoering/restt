@@ -949,7 +949,9 @@ convert_constcombo_to_string_test() ->
 generate_static_request_test() ->
 	Vars = [#const{name="vLat", type=float, value=0.000011, def={-180, 180}},
 			#const{name="vLon", type=float, value=0.000022, def={-180, 180}},
-			#const{name="test", type=integer, value=666 } ],
+			#const{name="test", type=integer, value=666 },
+			#const{name="ID", type=integer, value=23 },
+			#const{name="vString", type=string, value="ACK" } ],
 
 	Request = #request{
 		name="req2", 
@@ -960,6 +962,12 @@ generate_static_request_test() ->
 			{"latlng2", #constref{name="vLon"}}, 
 			{"sensor", "false"}, 
 			{#constref{name="test"}, "Inhalt"}], 
+		header=[
+			{"CLIENT_ID", #constcombo{fmt="~p~p", names=["test", "ID"]}},
+			{"TOKEN", #constref{name="test"}}, 
+			{"sensor", "false"}, 
+			{#constref{name="test"}, "Inhalt"},
+			{#constref{name="vString"}, #constref{name="test"}}], 
 		method=get,
 		body={json_body, 
 						{obj,[{"results",
