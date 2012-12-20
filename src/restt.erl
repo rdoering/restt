@@ -157,11 +157,11 @@ initiate_libs() ->
 quickcheck(Config) ->
 	initiate_libs(),
 
-	ConfigWithProperVars = initiate_const_as_proper_variables(Config),
-	io:format("Generated Vars: ~p~n", [Config#resttcfg.var_list]),
+	InitializedConfig = initiate_restt_config(Config),
+	io:format("Generated Vars: ~p~n", [InitializedConfig#resttcfg.var_list]),
 
-	ListOfTests = ConfigWithProperVars#resttcfg.test_list,
-	run_tests(ConfigWithProperVars, ListOfTests).
+	ListOfTests = InitializedConfig#resttcfg.test_list,
+	run_tests(InitializedConfig, ListOfTests).
 
 
 %
@@ -227,24 +227,24 @@ inner_proper_test(Config, ReqEntry, RepEntry) ->
 %
 %
 %
--spec initiate_const_as_proper_variables(resttcfg()) -> resttcfg().
-initiate_const_as_proper_variables(ResttConfig = #resttcfg{var_list=Vars}) -> 
-	NewVars = initiate_const_list_as_proper_variables(Vars, []),
-	ResttConfig#resttcfg{var_list=NewVars}.
+-spec initiate_restt_config(resttcfg()) -> resttcfg().
+initiate_restt_config(Config = #resttcfg{var_list=Vars}) -> 
+	NewVars = initiate_consts_as_proper_variables(Vars, []),
+	Config#resttcfg{var_list=NewVars}.
 
-initiate_const_list_as_proper_variables([#var{} | Rest], Generated_Value_List) ->
-	initiate_const_list_as_proper_variables(Rest, Generated_Value_List);
-initiate_const_list_as_proper_variables([Var=#const{type=float, def={Min, Max}} | Rest], Generated_Value_List) ->
-	initiate_const_list_as_proper_variables(Rest, [Var#const{value=float(Min, Max)} | Generated_Value_List]);
-initiate_const_list_as_proper_variables([Var=#const{type=float, def={}} | Rest], Generated_Value_List) ->
-	initiate_const_list_as_proper_variables(Rest, [Var#const{value=float()} | Generated_Value_List]);
-initiate_const_list_as_proper_variables([Var=#const{type=integer, def={Min, Max}} | Rest], Generated_Value_List) ->
-	initiate_const_list_as_proper_variables(Rest, [Var#const{value=integer(Min, Max)} | Generated_Value_List]);
-initiate_const_list_as_proper_variables([Var=#const{type=integer, def={}} | Rest], Generated_Value_List) ->
-	initiate_const_list_as_proper_variables(Rest, [Var#const{value=integer()} | Generated_Value_List]);
-initiate_const_list_as_proper_variables([Var=#const{type=string} | Rest], Generated_Value_List) ->
-	initiate_const_list_as_proper_variables(Rest, [Var#const{value=string()} | Generated_Value_List]);
-initiate_const_list_as_proper_variables([], Generated_Value_List) ->
+initiate_consts_as_proper_variables([VarEntry=#var{} | Rest], Generated_Value_List) ->
+	initiate_consts_as_proper_variables(Rest, [VarEntry | Generated_Value_List]);
+initiate_consts_as_proper_variables([ConstEntry=#const{type=float, def={Min, Max}} | Rest], Generated_Value_List) ->
+	initiate_consts_as_proper_variables(Rest, [ConstEntry#const{value=float(Min, Max)} | Generated_Value_List]);
+initiate_consts_as_proper_variables([ConstEntry=#const{type=float, def={}} | Rest], Generated_Value_List) ->
+	initiate_consts_as_proper_variables(Rest, [ConstEntry#const{value=float()} | Generated_Value_List]);
+initiate_consts_as_proper_variables([ConstEntry=#const{type=integer, def={Min, Max}} | Rest], Generated_Value_List) ->
+	initiate_consts_as_proper_variables(Rest, [ConstEntry#const{value=integer(Min, Max)} | Generated_Value_List]);
+initiate_consts_as_proper_variables([ConstEntry=#const{type=integer, def={}} | Rest], Generated_Value_List) ->
+	initiate_consts_as_proper_variables(Rest, [ConstEntry#const{value=integer()} | Generated_Value_List]);
+initiate_consts_as_proper_variables([ConstEntry=#const{type=string} | Rest], Generated_Value_List) ->
+	initiate_consts_as_proper_variables(Rest, [ConstEntry#const{value=string()} | Generated_Value_List]);
+initiate_consts_as_proper_variables([], Generated_Value_List) ->
 	Generated_Value_List.
 
 
@@ -699,8 +699,8 @@ evaluate_json_test() ->
 
 
 quickcheck_test() ->
-	Vars = [#const{name="vLat", type=float, value=0.000011, def={-180, 180}},
-			#const{name="vLon", type=float, value=0.000022, def={-180, 180}},
+	Vars = [#const{name="vLat", type=float, value=0.000011, def={-180.1, 180}},
+			#const{name="vLon", type=float, value=0.000022, def={-180.2, 180}},
 			#var{name="vHours", type=integer, def={0, 24}},
 			#var{name="vMinutes", type=integer, def={0, 60}},
 			#var{name="vFloatPercent", type=float, def={0.0, 1.0}},
