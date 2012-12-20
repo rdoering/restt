@@ -699,8 +699,9 @@ evaluate_json_test() ->
 
 
 quickcheck_test() ->
-	Vars = [#const{name="vLat", type=float, value=0.000011, def={-180.1, 180}},
-			#const{name="vLon", type=float, value=0.000022, def={-180.2, 180}},
+	% Make sure, using right type. (For example: 190 isn't a float!)
+	Vars = [#const{name="vLat", type=float, value=0.000011, def={-180.0, 180.0}},
+			#const{name="vLon", type=float, value=0.000022, def={-180.0, 180.0}},
 			#var{name="vHours", type=integer, def={0, 24}},
 			#var{name="vMinutes", type=integer, def={0, 60}},
 			#var{name="vFloatPercent", type=float, def={0.0, 1.0}},
