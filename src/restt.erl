@@ -291,10 +291,9 @@ generate_static_request(VarList, Request) ->
 	StaticParams = generate_static_keyvaluepairs(VarList, Request#request.params),
 	StaticHeader = generate_static_keyvaluepairs(VarList, Request#request.header),
 	StaticBody = generate_static_body(VarList, Request#request.body),
-	#request{params=StaticParams, header=StaticHeader, body=StaticBody}.
+	Request#request{params=StaticParams, header=StaticHeader, body=StaticBody}.
 
 
-% Just a wrapper
 -spec generate_static_keyvaluepairs(varlist(), keyValueList()) -> {ok, keyValueList()} | {error, string()}.
 generate_static_keyvaluepairs(VarList, KeyValueList) ->
 	generate_static_keyvaluepairs(VarList, lists:reverse(KeyValueList), []).
@@ -951,8 +950,8 @@ convert_constcombo_to_string_test() ->
 
 
 generate_static_request_test() ->
-	Vars = [#const{name="vLat", type=float, value=0.000011, def={-180, 180}},
-			#const{name="vLon", type=float, value=0.000022, def={-180, 180}},
+	Vars = [#const{name="vLat", type=float, value=23.000011, def={-180, 180}},
+			#const{name="vLon", type=float, value=5.000022, def={-180, 180}},
 			#const{name="test", type=integer, value=666 },
 			#const{name="ID", type=integer, value=23 },
 			#const{name="vString", type=string, value="ACK" } ],
