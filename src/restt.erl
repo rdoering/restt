@@ -32,8 +32,8 @@
 -export_type([resttcfg/0]).
 
 %
--record(resttcfg, {var_list = [], req_list = [], rep_list = [], test_list = []}).
--type resttcfg() :: #resttcfg{var_list::var()}.
+-record(resttcfg, {placeholder_list = [], req_list = [], rep_list = [], test_list = []}).
+-type resttcfg() :: #resttcfg{placeholder_list::var()}.
 %% @Todo Add an example
 %%
 
@@ -158,7 +158,7 @@ quickcheck(Config) ->
 	initiate_libs(),
 
 	InitializedConfig = initiate_restt_config(Config),
-	io:format("Generated Vars: ~p~n", [InitializedConfig#resttcfg.var_list]),
+	io:format("Generated Vars: ~p~n", [InitializedConfig#resttcfg.placeholder_list]),
 
 	ListOfTests = InitializedConfig#resttcfg.test_list,
 	run_tests(InitializedConfig, ListOfTests).
@@ -210,10 +210,10 @@ outer_proper_test(Config, ReqEntry, RepEntry) ->
 %
 %
 inner_proper_test(Config, ReqEntry, RepEntry) -> 
-	%Info = [ {Name, Value} || ValueList = #var{value=Value, name=Name}<-Config#resttcfg.var_list, is_record(ValueList, var)],
+	%Info = [ {Name, Value} || ValueList = #var{value=Value, name=Name}<-Config#resttcfg.placeholder_list, is_record(ValueList, var)],
 	%io:format("Vars....: ~p~n", [Info]),
 	
-	ServerReply = http_req(Config#resttcfg.var_list, ReqEntry),
+	ServerReply = http_req(Config#resttcfg.placeholder_list, ReqEntry),
 	case evaluate_server_reply(Config, RepEntry#reply.match_list, ServerReply) of
 		{failed, _FailedReason} ->
 			%io:format("    Result: Failed (~p)~n", [FailedReason]),
@@ -228,9 +228,9 @@ inner_proper_test(Config, ReqEntry, RepEntry) ->
 %
 %
 -spec initiate_restt_config(resttcfg()) -> resttcfg().
-initiate_restt_config(Config = #resttcfg{var_list=Vars}) -> 
+initiate_restt_config(Config = #resttcfg{placeholder_list=Vars}) -> 
 	NewVars = initiate_consts_as_proper_variables(Vars, []),
-	Config#resttcfg{var_list=NewVars}.
+	Config#resttcfg{placeholder_list=NewVars}.
 
 initiate_consts_as_proper_variables([VarEntry=#var{} | Rest], Generated_Value_List) ->
 	initiate_consts_as_proper_variables(Rest, [VarEntry | Generated_Value_List]);
@@ -418,80 +418,72 @@ evaluate_server_reply(_Config, {status, Num}, {ok, Status, _ResponseHeaders, _Re
 evaluate_json(_Config, [],[]) ->
     {ok};
 evaluate_json(Config, {obj, ExpectedReply}, {obj, Reply}) ->
-    %io:format("Object:    ~p~n",[ExpectedReply]),
-    evaluate_json(Config, ExpectedReply, Reply);
-% Here we look for vars at the key.
-evaluate_json(Config, {#var{name=VarName}, ExpectedReplyValue}, {ReplyKey, ReplyValue}) ->
-    %io:format("Var-Name for a Key:    ~p == ~p~n",[VarName, ReplyKey]),
-    evaluate_var(Config, VarName, ReplyKey),
+	try evaluate_json(Config, ExpectedReply, Reply) 
+	of
+		_ ->
+			{ok}
+	catch
+		throw:Other ->
+			Other
+	end;
+evaluate_json(Config, {#constref{name=VarName}, ExpectedReplyValue}, {ReplyKey, ReplyValue}) ->
+    evaluate_Placeholder(Config, VarName, ReplyKey),
     evaluate_json(Config, ExpectedReplyValue, ReplyValue);
 evaluate_json(Config, {Key, ExpectedReplyValue}, {Key, ReplyValue}) when is_list(Key)->
-    %io:format("Key:    ~p ~n",[Key]),
     evaluate_json(Config, ExpectedReplyValue, ReplyValue);
 evaluate_json(Config, [ExpectedReplyKeyValue | ExpectedReplyRest], [ReplyKeyValue | ReplyRest]) ->
-    %io:format("Listelem:    ~p~n",[ExpectedReplyKeyValue]),
-    case evaluate_json(Config, ExpectedReplyKeyValue, ReplyKeyValue) of
-        ok -> evaluate_json(Config, ExpectedReplyRest, ReplyRest);
-        FailedReason -> FailedReason
-    end;
-% Here we look for vars at the value.
-evaluate_json(Config, #var{name=VarName}, ReplyValue) ->
-    %io:format("Var-Name for a Value:    ~p == ~p~n",[VarName, ReplyValue]),
-    evaluate_var(Config, VarName, ReplyValue);
+    evaluate_json(Config, ExpectedReplyKeyValue, ReplyKeyValue),
+    evaluate_json(Config, ExpectedReplyRest, ReplyRest);
+evaluate_json(Config, #constref{name=VarName}, ReplyValue) ->
+    evaluate_Placeholder(Config, VarName, ReplyValue);
 evaluate_json(_Config, Value, Value) ->
-    %io:format("Single Value:    ~p~n",[Value]),
-	ok;
+    {ok};
 evaluate_json(_Config, ExpectedReplyValue, ReplyValue) ->
-    {failed, {jbody, ExpectedReplyValue, ReplyValue}}.
+	Msg = lists:flatten(io_lib:format("Pattern ~p does not match ~p.", [ExpectedReplyValue, ReplyValue])),
+    {failed, {jbody, [{missmatch, ExpectedReplyValue}, {msg, Msg}]}}.
 
-evaluate_var(Config, VarName, Term) ->
-	case cfg_get_var_entry(Config, VarName) of
+evaluate_Placeholder(Config, VarName, Term) ->
+	case cfg_get_placeholder_entry(Config, VarName) of
 		{error} -> 
 			Msg = lists:flatten(io_lib:format("Variable ~p not declared.", [VarName])),
-			{failed, [{missmatch, var}, {msg, Msg}]};
+			throw({failed, [{missmatch, var}, {msg, Msg}]});
 		
 		{ok, VarEntry} ->
-			io:format("Try to match ~p against ~p~n", [VarEntry, Term]),
-			evaluate_var_type(VarEntry, Term)
+			evaluate_Placeholder_type(VarEntry, Term),
+			evaluate_Placeholder_value(VarEntry, Term),
+			evaluate_Placeholder_def(VarEntry, Term)
 	end.
 
-evaluate_var_type(Var=#var{type=Type, name=VarName}, Term) ->
+evaluate_Placeholder_type(#var{type=Type, name=VarName}, Term) ->
 	case debutten:validate(Term, {Type}) of
-		true ->
-			evaluate_var_value(Var, Term);
-		_Else ->
+		false ->
 			Msg = lists:flatten(io_lib:format("Variable ~p does not match ~p.", [VarName, Term])),
-			{failed, [{missmatch, var}, {msg, Msg}]}
+			throw({failed, [{missmatch, var}, {msg, Msg}]});
+		true -> 
+			{ok}
 	end.
 
-evaluate_var_value(#var{is_generated=true, value=Value, name=VarName}, Term) ->
+evaluate_Placeholder_value(#var{is_generated=false}, _Term) ->
+	{ok};
+evaluate_Placeholder_value(#var{is_generated=true, value=Value, name=VarName}, Term) ->
 	case Term of
 		Value ->
 			{ok};
 		_Else ->
 			Msg = lists:flatten(io_lib:format("Variable ~p (Value:~p) does not match ~p.", [VarName, Value, Term])),
-			{failed, [{missmatch, var}, {msg, Msg}]}
-	end;
-evaluate_var_value(Var=#var{is_generated=false}, Term) ->
-	evaluate_var_def(Var, Term).
+			throw({failed, [{missmatch, var}, {msg, Msg}]})
+	end.
 
-evaluate_var_def(#var{def=[]}, _Term) ->
+evaluate_Placeholder_def(#var{def={}}, _Term) ->
 	{ok};
-evaluate_var_def(Var=#var{name=VarName, def=[{min, Min} | Rest]}, Term) ->
-	case Term >= Min  of
-		true ->
-			evaluate_var_def(Var#var{def=Rest}, Term);
-		_Else ->
-			Msg = lists:flatten(io_lib:format("Variable ~p(value:~p) is less than ~p.", [VarName, Term, Min])),
-			{failed, [{missmatch, var},{mag, Msg}]}
-	end;
-evaluate_var_def(Var=#var{name=VarName, def=[{max, Max} | Rest]}, Term) ->
-	case Term < Max  of
-		true ->
-			evaluate_var_def(Var#var{def=Rest}, Term);
-		_Else ->
-			Msg = lists:flatten(io_lib:format("Variable ~p(value:~p) is greater than ~p.", [VarName, Term, Max])),
-			{failed, [{missmatch, var},{mag, Msg}]}
+evaluate_Placeholder_def(#var{name=VarName, def={Min, Max}}, Term) ->
+	try
+		true = Term >= Min,
+		true = Term =< Max
+	catch
+		_:_ -> 
+			Msg = lists:flatten(io_lib:format("Variable ~p(value:~p) is not in btw. ~p and ~p.", [VarName, Term, Min, Max])),
+			throw({failed, [{missmatch, var},{mag, Msg}]})
 	end.
 
 
@@ -567,15 +559,33 @@ cfg_get_reply_entry(Config, EntryName) ->
 	end.
 
 %
-% @spec cfg_get_var_entry(Config, EntryName) -> {ok, Entry} | {error}
+% @spec cfg_get_placeholder_entry(Config, EntryName) -> {ok, Entry} | {error}
 % where
 %	Config = resttcfg()
 %	EntryName = string()
 %	Entry = request_record()
 %
+cfg_get_placeholder_entry(Config, EntryName) ->
+	case
+		cfg_get_const_entry(Config, EntryName)
+	of
+		{ok, Entry} -> 
+			{ok, Entry} ;
+		_ ->
+			cfg_get_var_entry(Config, EntryName)
+	end.
 cfg_get_var_entry(Config, EntryName) ->
 	case
-		[E || E <- Config#resttcfg.var_list, is_record(E, var), E#var.name == EntryName]
+		[E || E <- Config#resttcfg.placeholder_list, is_record(E, var), E#var.name == EntryName]
+	of
+		[Entry] -> 
+			{ok, Entry} ;
+		[] ->
+			{error}
+	end.
+cfg_get_const_entry(Config, EntryName) ->
+	case
+		[E || E <- Config#resttcfg.placeholder_list, is_record(E, const), E#const.name == EntryName]
 	of
 		[Entry] -> 
 			{ok, Entry} ;
@@ -597,37 +607,37 @@ evaluate_json_test() ->
 			#var{name="vMinutes", type=integer, def={0, 60}},
 			#var{name="vFloatPercent", type=float, def={0.0, 1.0}} ],
 
-	Config = #resttcfg{var_list=Vars, req_list=undefined, rep_list=undefined, test_list=undefined},
+	Config = #resttcfg{placeholder_list=Vars, req_list=undefined, rep_list=undefined, test_list=undefined},
 
-	ExpectedReply0 = { obj,[{"result", #var{name="Var0"}}]},
-	Reply0 = { obj,[{"result","super"}]},
-	?assertMatch({failed, _}, evaluate_json(Config, ExpectedReply0, Reply0)),
+	Pattern0 = { obj,[{"result", #constref{name="Var0"}}]},
+	Input0 = { obj,[{"result","super"}]},
+	?assertMatch({failed, _}, evaluate_json(Config, Pattern0, Input0)),
 	
-	ExpectedReply1 = { obj,[{"result", #var{name="Var1"}}]},
-	Reply1 = { obj,[{"result","super"}]},
-	?assertMatch({ok}, evaluate_json(Config, ExpectedReply1, Reply1)),
+	Pattern1 = { obj,[{"result", #constref{name="Var1"}}]},
+	Input1 = { obj,[{"result","super"}]},
+	?assertMatch({ok}, evaluate_json(Config, Pattern1, Input1)),
 
-	ExpectedReply2 = { obj,[{#var{name="Var2"}, "super"}]},
-	Reply2 = { obj,[{"result","super"}]},
-	?assertMatch({ok}, evaluate_json(Config, ExpectedReply2, Reply2)),
+	Pattern2 = { obj,[{#constref{name="Var2"}, "super"}]},
+	Input2 = { obj,[{"result","super"}]},
+	?assertMatch({ok}, evaluate_json(Config, Pattern2, Input2)),
 
-	ExpectedReply3 = { obj,[{"time", #var{name="vHours"}}]},
-	Reply3 = { obj,[{"time",10}]},
-	?assertMatch({ok}, evaluate_json(Config, ExpectedReply3, Reply3)),
+	Pattern3 = { obj,[{"time", #constref{name="vHours"}}]},
+	Input3 = { obj,[{"time",10}]},
+	?assertMatch({ok}, evaluate_json(Config, Pattern3, Input3)),
 
-	ExpectedReply4 = { obj,[{"time", #var{name="vHours"}}]},
-	Reply4 = { obj,[{"time",61}]},
-	?assertMatch({failed, _}, evaluate_json(Config, ExpectedReply4, Reply4)),
+	Pattern4 = { obj,[{"time", #constref{name="vHours"}}]},
+	Input4 = { obj,[{"time",61}]},
+	?assertMatch({failed, _}, evaluate_json(Config, Pattern4, Input4)),
 
-	ExpectedReply5 = { obj,[{"percent", #var{name="vFloatPercent"}}]},
-	Reply5 = { obj,[{"percent",0.121211234}]},
-	?assertMatch({ok}, evaluate_json(Config, ExpectedReply5, Reply5)),
+	Pattern5 = { obj,[{"percent", #constref{name="vFloatPercent"}}]},
+	Input5 = { obj,[{"percent",0.121211234}]},
+	?assertMatch({ok}, evaluate_json(Config, Pattern5, Input5)),
 
-	ExpectedReply6 = { obj,[{"percent", #var{name="vFloatPercent"}}]},
-	Reply6 = { obj,[{"percent",1.021211234}]},
-	?assertMatch({failed, _}, evaluate_json(Config, ExpectedReply6, Reply6)),
+	Pattern6 = { obj,[{"percent", #constref{name="vFloatPercent"}}]},
+	Input6 = { obj,[{"percent",1.021211234}]},
+	?assertMatch({failed, _}, evaluate_json(Config, Pattern6, Input6)),
 
-	ExpectedReply={	obj,[{"results",
+	Pattern={	obj,[{"results",
 		   				 [{obj,[{"address_components",
 				   				[{obj,[{"long_name",<<"Berlin">>},
 						  				{"short_name",<<"Berlin">>},
@@ -660,7 +670,7 @@ evaluate_json_test() ->
 				  				{"types",[<<"locality">>,<<"political">>]}]}]},
 		  				{"status",<<"OK">>}]},
 
-	Reply = {	obj,[{"results",
+	Input = {	obj,[{"results",
 		   				 [{obj,[{"address_components",
 				   				[{obj,[{"long_name",<<"Berlin">>},
 						  				{"short_name",<<"Berlin">>},
@@ -694,7 +704,7 @@ evaluate_json_test() ->
 		  				{"status",<<"OK">>}]},
 
 
-	?assertMatch({ok}, evaluate_json(Config, ExpectedReply, Reply)).
+	?assertMatch({ok}, evaluate_json(Config, Pattern, Input)).
 
 
 quickcheck_test() ->
@@ -793,7 +803,7 @@ quickcheck_test() ->
 			 {test, "test5", "req1", "rep1", 100},
 			 {test, "test6", "req2", "rep2", 100}],
 
-	Config = #resttcfg{var_list=Vars, req_list=Requests, rep_list=Replies, test_list=Tests},
+	Config = #resttcfg{placeholder_list=Vars, req_list=Requests, rep_list=Replies, test_list=Tests},
 	quickcheck(Config).
 
 
@@ -985,5 +995,30 @@ generate_static_request_test() ->
      				          {"resolution",#constref{name="vLon"}}]}]},
      				  {"status",<<"OK">>}]} }},
 
-    generate_static_request(Vars, Request).
+    ExpectedStaticRequest = {request,"req2","http://maps.googleapis.com",
+         "/maps/api/geocode/json",
+         [{"latlng","23.000011,5.000022"},
+          {"latlng2","5.000022"},
+          {"sensor","false"},
+          {"666","Inhalt"}],
+         get,
+         [{"CLIENT_ID","66623"},
+          {"TOKEN","666"},
+          {"sensor","false"},
+          {"666","Inhalt"},
+          {"ACK","666"}],
+         {obj,[{"results",
+                [{obj,[{"elevation",23.000011},
+                       {"location",
+                        {obj,[{"lat",39.7391536},{"lng",-104.9847034}]}},
+                       {"666",4.771975994110107},
+                       {"String.. content","ACK"},
+                       {"Integer. content",666},
+                       {"float... content",23.000011}]},
+                 {obj,[{"elevation",-50.78903579711914},
+                       {"hallo666",{obj,[{"lat",36.455556},{"lng",-116.866667}]}},
+                       {"resolution",5.000022}]}]},
+               {"status",<<"OK">>}]}},
+
+    ?assertMatch(ExpectedStaticRequest, generate_static_request(Vars, Request)).
     
