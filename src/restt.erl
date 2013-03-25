@@ -153,7 +153,7 @@ initiate_libs() ->
 %
 % @todo: Write a spec of config
 %
--spec quickcheck(resttcfg()) -> 'ok'.
+-spec quickcheck(resttcfg()) -> true | false.
 quickcheck(Config) ->
 	initiate_libs(),
 
@@ -167,14 +167,14 @@ quickcheck(Config) ->
 %
 % Go step by step through all tests
 %
-% @spec run_tests(Config, Tests) -> ok
+% @spec run_tests(Config, Tests) -> true | false
 % where
 %	Config = list()
 %	Tests = list()
 % @end
 %
 run_tests(_Config, []) ->
-	ok;
+	true;
 run_tests(Config, [Test | OtherTests]) ->
 	io:format("Run Test ~p ~n", [Test#test.name]),
 	io:format("    Send Request ~p ~n", [Test#test.request_name]),
@@ -707,7 +707,7 @@ evaluate_json_test() ->
 	?assertMatch({ok}, evaluate_json(Config, Pattern, Input)).
 
 
-quickcheck_test() ->
+quickcheck_test_() ->
 	% Make sure, using right type. (For example: 190 isn't a float!)
 	Vars = [#const{name="vLat", type=float, value=0.000011, def={-180.0, 180.0}},
 			#const{name="vLon", type=float, value=0.000022, def={-180.0, 180.0}},
@@ -804,7 +804,7 @@ quickcheck_test() ->
 			 {test, "test6", "req2", "rep2", 100}],
 
 	Config = #resttcfg{placeholder_list=Vars, req_list=Requests, rep_list=Replies, test_list=Tests},
-	quickcheck(Config).
+	{timeout, 6*60, ?_assertEqual(true, quickcheck(Config))}.
 
 
 %
