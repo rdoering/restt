@@ -19,7 +19,6 @@
 
 -define(TYPEMARKER, xyz_type).
 
-
 -export([
 	quickcheck/1,
 	param_to_str/3,
@@ -31,13 +30,9 @@
 
 -export_type([resttcfg/0]).
 
-%
 -record(resttcfg, {placeholder_list = [], req_list = [], rep_list = [], test_list = []}).
 -type resttcfg() :: #resttcfg{placeholder_list::var()}.
-%% @Todo Add an example
-%%
 
-% @todo export into a header file
 -type min_value() :: number().
 -type max_value() :: number().
 
@@ -60,8 +55,6 @@
 
 -record(constcombo, {fmt = "", names=[]}).
 -type constcombo() :: #constcombo{ fmt::string(), names::[string()] }.
-%% names is a list of const-names.
-%%
 
 %% Defined at http://tonyg.github.com/erlang-rfc4627/doc/
 -type json() :: jsonobj() | jsonarray() | jsonnum() | jsonstr() | true | false | null.
@@ -84,10 +77,6 @@
 -record(reply, {name, match_list}).
 -record(test, {name, request_name, reply_name, iter}).
 
-
-%
-%
-%
 -type response() :: {ok, Status::integer(), ResponseHeaders::term(), ResponseBody::term()} 
 					| {ibrowse_req_id, Req_id::term()} | {error, Reason::term()}.
 -spec http_req(varlist(), request()) -> response().
@@ -517,12 +506,6 @@ tool_get_response_as_json(SingleURI, GetValue) ->
 	tool_get_response_as_json(#request{host=SingleURI, method=get}, GetValue). 
 
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%  Configuration
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
 %
 % @spec cfg_get_request_entry(Config, EntryName) -> {ok, Entry} | {error}
 % where
@@ -593,12 +576,6 @@ cfg_get_const_entry(Config, EntryName) ->
 			{error}
 	end.
 
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%   Tests
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 evaluate_json_test() ->
 	Vars = [#var{name="Var1", type=string, def={}},
