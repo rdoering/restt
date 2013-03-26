@@ -123,16 +123,15 @@ quickcheck(Config) ->
 	initiate_libs(),
 
 	InitializedConfig = initiate_restt_config(Config),
-	io:format("Generated Vars: ~p~n", [InitializedConfig#resttcfg.placeholder_list]),
 
 	ListOfTests = InitializedConfig#resttcfg.test_list,
 	try run_tests(InitializedConfig, ListOfTests) 
 	of	_ -> true
 	catch
-		{warning, Msg} -> 
+		throw:{warning, Msg} -> 
 			io:format("Warning: ~p~n", [Msg]),
 			false;
-		_-> false
+		_:_-> false
 	end.
 
 
@@ -148,13 +147,9 @@ quickcheck(Config) ->
 run_tests(_Config, []) ->
 	true;
 run_tests(Config, [Test | OtherTests]) ->
-	io:format("Run Test ~p ~n", [Test#test.name]),
-	io:format("    Send Request ~p ~n", [Test#test.request_name]),
-	io:format("    Reply Rule ~p ~n", [Test#test.reply_name]),
-
-	{ok, ReqEntry} = cfg_get_request_entry(Config, Test#test.request_name),
-	{ok, RepEntry} = cfg_get_reply_entry(Config, Test#test.reply_name),
-	proper:quickcheck(outer_proper_test(Config, ReqEntry, RepEntry)),
+	{ok, RequestEntry} = cfg_get_request_entry(Config, Test#test.request_name),
+	{ok, ReplyEntry} = cfg_get_reply_entry(Config, Test#test.reply_name),
+	proper:quickcheck(outer_proper_test(Config, RequestEntry, ReplyEntry)),
 	run_tests(Config, OtherTests).
 
 
@@ -192,15 +187,19 @@ cfg_get_reply_entry(Config, EntryName) ->
 	end.
 
 
-outer_proper_test(Config, ReqEntry, RepEntry) ->
-	?FORALL(ConfigWithGeneratedVars, Config, inner_proper_test(ConfigWithGeneratedVars, ReqEntry, RepEntry)).
+outer_proper_test(Config, RequestEntry, ReplyEntry) ->
+	?FORALL(ConfigWithGeneratedVars, Config, inner_proper_test(ConfigWithGeneratedVars, RequestEntry, ReplyEntry)).
 
 
-inner_proper_test(Config, ReqEntry, RepEntry) -> 
-	ServerReply = http_request(Config#resttcfg.placeholder_list, ReqEntry),
-	case evaluate_server_reply(Config, RepEntry#reply.match_list, ServerReply) of
-		{failed, _FailedReason} -> false;
-		{ok} ->	true
+inner_proper_test(Config, RequestEntry, ReplyEntry) -> 
+	ServerReply = http_request(Config#resttcfg.placeholder_list, RequestEntry),
+	try evaluate_server_reply(Config, ReplyEntry#reply.match_list, ServerReply) 
+	of {ok} -> true
+	catch
+		throw:{failed, Reason} ->
+			io:format("Failed: ~p~n", [Reason]),
+			false;
+		_:_ -> false
 	end.
 
 
@@ -224,22 +223,18 @@ http_request(VarList, Request=#request{}) ->
 %% @end
 %% 
 evaluate_server_reply(_Config, [], _ServerReply) ->
-	ok;
-evaluate_server_reply(Config, [Condition | ConditionList], ServerReply) ->
-	case evaluate_server_reply(Config, Condition, ServerReply) of
-		ok ->
-			evaluate_server_reply(Config, ConditionList, ServerReply);
-		FailedReason ->
-			FailedReason
-	end;
+	{ok};
+evaluate_server_reply(Config, [Condition | ConditionRest], ServerReply) ->
+	evaluate_server_reply(Config, Condition, ServerReply),
+	evaluate_server_reply(Config, ConditionRest, ServerReply);
 evaluate_server_reply(_Config, {header_exact, Headers}, {ok, _Status, ResponseHeaders, _ResponseBody}) ->
 	HeadersSorted=lists:sort(Headers),
 	ResponseHeadersSorted=lists:sort(ResponseHeaders),
 	case HeadersSorted of
-		ResponseHeadersSorted ->
-			{ok};
+		ResponseHeadersSorted -> {ok};
 		_Else ->
-			{failed, [{missmatch, header_exact}, {expected, HeadersSorted}, {response, ResponseHeadersSorted}]}
+			Msg = lists:flatten(io_lib:format("Expected exactly header ~p does not match ~p.", [HeadersSorted, ResponseHeadersSorted])),
+			throw({failed, Msg})
 	end;
 evaluate_server_reply(_Config, {header_part, Headers}, {ok, _Status, ResponseHeaders, _ResponseBody}) ->
 	%TODO: check each header
@@ -247,10 +242,10 @@ evaluate_server_reply(_Config, {header_part, Headers}, {ok, _Status, ResponseHea
 	MembersCount = length(Members),
 	HeadersCount = length(Headers),
 	case MembersCount of
-		HeadersCount ->
-			{ok};
+		HeadersCount -> {ok};
 		_Else ->
-			{failed, [{missmatch, header}, {expected, Headers}, {response, ResponseHeaders}]}
+			Msg = lists:flatten(io_lib:format("Expected partially header ~p does not match ~p.", [Headers, ResponseHeaders])),
+			throw({failed, Msg})
 	end;
 evaluate_server_reply(Config, {json_body, ExpectedReplyBody}, {ok, _Status, _ResponseHeaders, ResponseBody}) ->
 	{ok, ResponseBodyJson, _} = rfc4627:decode(ResponseBody),
@@ -258,10 +253,10 @@ evaluate_server_reply(Config, {json_body, ExpectedReplyBody}, {ok, _Status, _Res
 evaluate_server_reply(_Config, {status, Num}, {ok, Status, _ResponseHeaders, _ResponseBody}) ->
 	{StatusInteger, _} = string:to_integer(Status),
 	case Num of
-		StatusInteger ->
-			{ok};
+		StatusInteger -> {ok};
 		_Else ->
-			{failed, [{missmatch, status}, {expected, Num}, {response, StatusInteger}]}
+			Msg = lists:flatten(io_lib:format("Expected response status code is ~p and not ~p.", [Num, StatusInteger])),
+			throw({failed, Msg})
 	end.
 
 
@@ -269,12 +264,9 @@ evaluate_json(_Config, [],[]) ->
     {ok};
 evaluate_json(Config, {obj, ExpectedReply}, {obj, Reply}) ->
 	try evaluate_json(Config, ExpectedReply, Reply) 
-	of
-		_ ->
-			{ok}
+	of	_ -> {ok}
 	catch
-		throw:Other ->
-			Other
+		throw:Other -> Other
 	end;
 evaluate_json(Config, {#constref{name=VarName}, ExpectedReplyValue}, {ReplyKey, ReplyValue}) ->
     evaluate_Placeholder(Config, VarName, ReplyKey),
