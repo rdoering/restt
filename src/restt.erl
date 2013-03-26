@@ -165,7 +165,7 @@ cfg_get_request_entry(Config, EntryName) ->
 	of
 		[Entry] -> {ok, Entry}; 
 		[] ->
-			Msg = lists:flatten(io_lib:format("Warning: missing request entry ~p~n", [EntryName])),
+			Msg = lists:flatten(io_lib:format("Missing request entry ~p~n", [EntryName])),
 			throw({warning, Msg})
 	end.
 
@@ -182,7 +182,7 @@ cfg_get_reply_entry(Config, EntryName) ->
 	of
 		[Entry] -> {ok, Entry};
 		[] ->
-			Msg = lists:flatten(io_lib:format("Warning: missing reply entry ~p~n", [EntryName])),
+			Msg = lists:flatten(io_lib:format("Missing reply entry ~p~n", [EntryName])),
 			throw({warning, Msg})
 	end.
 
