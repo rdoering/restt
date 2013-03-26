@@ -217,43 +217,41 @@ http_request(VarList, Request=#request{}) ->
 %% @spec evaluate_server_reply(Config, ConditionList, ServerReply) -> Result
 %% where
 %%  Config = config()
-%% 	ConditionList = {header, Header::list_of_key_value_tupels()} | {jbody, Body::rfc4627_oj()} | {status, Num::integer()}
+%% 	ConditionList = {header, Header::list_of_key_value_tupels()} | {jbody, Body::rfc4627_obj()} | {status, Num::integer()}
 %%	ServerReply =  {ok:atom(), Status::string(), ResponseHeaders::list_of_key_value_tupels(), ResponseBody::json_string()}
 %%	Result = ok | {failed, What::kind_as_atom(), expected(), realResponse()}
 %% @end
 %% 
 evaluate_server_reply(_Config, [], _ServerReply) ->
 	{ok};
-evaluate_server_reply(Config, [Condition | ConditionRest], ServerReply) ->
-	evaluate_server_reply(Config, Condition, ServerReply),
-	evaluate_server_reply(Config, ConditionRest, ServerReply);
-evaluate_server_reply(_Config, {header_exact, Headers}, {ok, _Status, ResponseHeaders, _ResponseBody}) ->
+evaluate_server_reply(Config, [{header_exact, Headers} | ConditionRest], {ok, _Status, ResponseHeaders, _ResponseBody} = ServerReply) ->
 	HeadersSorted=lists:sort(Headers),
 	ResponseHeadersSorted=lists:sort(ResponseHeaders),
 	case HeadersSorted of
-		ResponseHeadersSorted -> {ok};
+		ResponseHeadersSorted -> evaluate_server_reply(Config, ConditionRest, ServerReply);
 		_Else ->
 			Msg = lists:flatten(io_lib:format("Expected exactly header ~p does not match ~p.", [HeadersSorted, ResponseHeadersSorted])),
 			throw({failed, Msg})
 	end;
-evaluate_server_reply(_Config, {header_part, Headers}, {ok, _Status, ResponseHeaders, _ResponseBody}) ->
+evaluate_server_reply(Config, [{header_part, Headers} | ConditionRest], {ok, _Status, ResponseHeaders, _ResponseBody} = ServerReply) ->
 	%TODO: check each header
 	Members = [X||X<-Headers, lists:member(X,ResponseHeaders)],
 	MembersCount = length(Members),
 	HeadersCount = length(Headers),
 	case MembersCount of
-		HeadersCount -> {ok};
+		HeadersCount -> evaluate_server_reply(Config, ConditionRest, ServerReply);
 		_Else ->
 			Msg = lists:flatten(io_lib:format("Expected partially header ~p does not match ~p.", [Headers, ResponseHeaders])),
 			throw({failed, Msg})
 	end;
-evaluate_server_reply(Config, {json_body, ExpectedReplyBody}, {ok, _Status, _ResponseHeaders, ResponseBody}) ->
+evaluate_server_reply(Config, [{json_body, ExpectedReplyBody} | ConditionRest], {ok, _Status, _ResponseHeaders, ResponseBody} = ServerReply) ->
 	{ok, ResponseBodyJson, _} = rfc4627:decode(ResponseBody),
-	evaluate_json(Config, ExpectedReplyBody, ResponseBodyJson);
-evaluate_server_reply(_Config, {status, Num}, {ok, Status, _ResponseHeaders, _ResponseBody}) ->
+	evaluate_json(Config, ExpectedReplyBody, ResponseBodyJson),
+	evaluate_server_reply(Config, ConditionRest, ServerReply);
+evaluate_server_reply(Config, [{status, Num} | ConditionRest], {ok, Status, _ResponseHeaders, _ResponseBody} = ServerReply) ->
 	{StatusInteger, _} = string:to_integer(Status),
 	case Num of
-		StatusInteger -> {ok};
+		StatusInteger -> evaluate_server_reply(Config, ConditionRest, ServerReply);
 		_Else ->
 			Msg = lists:flatten(io_lib:format("Expected response status code is ~p and not ~p.", [Num, StatusInteger])),
 			throw({failed, Msg})
@@ -263,11 +261,7 @@ evaluate_server_reply(_Config, {status, Num}, {ok, Status, _ResponseHeaders, _Re
 evaluate_json(_Config, [],[]) ->
     {ok};
 evaluate_json(Config, {obj, ExpectedReply}, {obj, Reply}) ->
-	try evaluate_json(Config, ExpectedReply, Reply) 
-	of	_ -> {ok}
-	catch
-		throw:Other -> Other
-	end;
+	evaluate_json(Config, ExpectedReply, Reply);
 evaluate_json(Config, {#constref{name=VarName}, ExpectedReplyValue}, {ReplyKey, ReplyValue}) ->
     evaluate_Placeholder(Config, VarName, ReplyKey),
     evaluate_json(Config, ExpectedReplyValue, ReplyValue);
@@ -276,19 +270,21 @@ evaluate_json(Config, {Key, ExpectedReplyValue}, {Key, ReplyValue}) when is_list
 evaluate_json(Config, [ExpectedReplyKeyValue | ExpectedReplyRest], [ReplyKeyValue | ReplyRest]) ->
     evaluate_json(Config, ExpectedReplyKeyValue, ReplyKeyValue),
     evaluate_json(Config, ExpectedReplyRest, ReplyRest);
+evaluate_json(Config, #varref{name=VarName}, ReplyValue) ->
+	evaluate_Placeholder(Config, VarName, ReplyValue);
 evaluate_json(Config, #constref{name=VarName}, ReplyValue) ->
     evaluate_Placeholder(Config, VarName, ReplyValue);
 evaluate_json(_Config, Value, Value) ->
     {ok};
 evaluate_json(_Config, ExpectedReplyValue, ReplyValue) ->
 	Msg = lists:flatten(io_lib:format("Pattern ~p does not match ~p.", [ExpectedReplyValue, ReplyValue])),
-    {failed, {jbody, [{missmatch, ExpectedReplyValue}, {msg, Msg}]}}.
+	throw({failed, Msg}).
 
 evaluate_Placeholder(Config, VarName, Term) ->
 	case cfg_get_placeholder_entry(Config, VarName) of
 		{error} -> 
 			Msg = lists:flatten(io_lib:format("Variable ~p not declared.", [VarName])),
-			throw({failed, [{missmatch, var}, {msg, Msg}]});
+			throw({failed, Msg});
 		
 		{ok, VarEntry} ->
 			evaluate_Placeholder_type(VarEntry, Term),
@@ -296,26 +292,33 @@ evaluate_Placeholder(Config, VarName, Term) ->
 			evaluate_Placeholder_def(VarEntry, Term)
 	end.
 
-evaluate_Placeholder_type(#var{type=Type, name=VarName}, Term) ->
+evaluate_Placeholder_type(#var{type=Type, name=PlaceholderName}, Term) ->
+	evaluate_Placeholder_type(Type, PlaceholderName, Term);
+evaluate_Placeholder_type(#const{type=Type, name=PlaceholderName}, Term) ->
+	evaluate_Placeholder_type(Type, PlaceholderName, Term).
+
+evaluate_Placeholder_type(Type, PlaceholderName, Term) ->
 	case debutten:validate(Term, {Type}) of
 		false ->
-			Msg = lists:flatten(io_lib:format("Variable ~p does not match ~p.", [VarName, Term])),
-			throw({failed, [{missmatch, var}, {msg, Msg}]});
+			Msg = lists:flatten(io_lib:format("Placeholder ~p does not match ~p.", [PlaceholderName, Term])),
+			throw({failed, Msg});
 		true -> 
 			{ok}
 	end.
 
-evaluate_Placeholder_value(#var{is_generated=false}, _Term) ->
+evaluate_Placeholder_value(#var{}, _Term) ->
 	{ok};
-evaluate_Placeholder_value(#var{is_generated=true, value=Value, name=VarName}, Term) ->
+evaluate_Placeholder_value(#const{value=Value, name=VarName}, Term) ->
 	case Term of
 		Value ->
 			{ok};
 		_Else ->
-			Msg = lists:flatten(io_lib:format("Variable ~p (Value:~p) does not match ~p.", [VarName, Value, Term])),
-			throw({failed, [{missmatch, var}, {msg, Msg}]})
+			Msg = lists:flatten(io_lib:format("Const ~p (Value:~p) does not match ~p.", [VarName, Value, Term])),
+			throw({failed, Msg})
 	end.
 
+evaluate_Placeholder_def(#const{def={}}, _Term) ->
+	{ok};
 evaluate_Placeholder_def(#var{def={}}, _Term) ->
 	{ok};
 evaluate_Placeholder_def(#var{name=VarName, def={Min, Max}}, Term) ->
@@ -325,8 +328,36 @@ evaluate_Placeholder_def(#var{name=VarName, def={Min, Max}}, Term) ->
 	catch
 		_:_ -> 
 			Msg = lists:flatten(io_lib:format("Variable ~p(value:~p) is not in btw. ~p and ~p.", [VarName, Term, Min, Max])),
-			throw({failed, [{missmatch, var},{mag, Msg}]})
+			throw({failed, Msg})
 	end.
+
+
+%
+% @spec cfg_get_placeholder_entry(Config, EntryName) -> {ok, Entry} | {error}
+% where
+%	Config = resttcfg()
+%	EntryName = string()
+%	Entry = request_record()
+%
+cfg_get_placeholder_entry(Config, EntryName) ->
+	case cfg_get_const_entry(Config, EntryName)
+	of
+		{ok, Entry} -> {ok, Entry} ;
+		_ -> cfg_get_var_entry(Config, EntryName)
+	end.
+cfg_get_var_entry(Config, EntryName) ->
+	case [E || E <- Config#resttcfg.placeholder_list, is_record(E, var), E#var.name == EntryName]
+	of
+		[Entry] -> {ok, Entry} ;
+		[] -> {error}
+	end.
+cfg_get_const_entry(Config, EntryName) ->
+	case [E || E <- Config#resttcfg.placeholder_list, is_record(E, const), E#const.name == EntryName]
+	of
+		[Entry] -> {ok, Entry} ;
+		[] -> {error}
+	end.
+
 
 
 %
@@ -504,42 +535,6 @@ http_request(Request) ->
 	http_request([], Request).
 
 
-%
-% @spec cfg_get_placeholder_entry(Config, EntryName) -> {ok, Entry} | {error}
-% where
-%	Config = resttcfg()
-%	EntryName = string()
-%	Entry = request_record()
-%
-cfg_get_placeholder_entry(Config, EntryName) ->
-	case
-		cfg_get_const_entry(Config, EntryName)
-	of
-		{ok, Entry} -> 
-			{ok, Entry} ;
-		_ ->
-			cfg_get_var_entry(Config, EntryName)
-	end.
-cfg_get_var_entry(Config, EntryName) ->
-	case
-		[E || E <- Config#resttcfg.placeholder_list, is_record(E, var), E#var.name == EntryName]
-	of
-		[Entry] -> 
-			{ok, Entry} ;
-		[] ->
-			{error}
-	end.
-cfg_get_const_entry(Config, EntryName) ->
-	case
-		[E || E <- Config#resttcfg.placeholder_list, is_record(E, const), E#const.name == EntryName]
-	of
-		[Entry] -> 
-			{ok, Entry} ;
-		[] ->
-			{error}
-	end.
-
-
 evaluate_json_test() ->
 	Vars = [#var{name="Var1", type=string, def={}},
 			#var{name="Var2", type=string, def={}},
@@ -656,7 +651,7 @@ run_quickcheck_example() ->
 			#const{name="vLon", type=float, value=0.000022, def={-180.0, 180.0}},
 			#var{name="vHours", type=integer, def={0, 24}},
 			#var{name="vMinutes", type=integer, def={0, 60}},
-			#var{name="vFloat1", type=float, def={0.0, 1.0}},
+			#var{name="vFloat1", type=float, def={-180.0, 180.0}},
 			#const{name="vHoursG", type=integer, def={0, 24}},
 			#const{name="vMinutesG", type=integer},
 			#const{name="vFloatPercentG", type=float, def={0.0, 1.0}} ],
