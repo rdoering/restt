@@ -126,7 +126,14 @@ quickcheck(Config) ->
 	io:format("Generated Vars: ~p~n", [InitializedConfig#resttcfg.placeholder_list]),
 
 	ListOfTests = InitializedConfig#resttcfg.test_list,
-	run_tests(InitializedConfig, ListOfTests).
+	try run_tests(InitializedConfig, ListOfTests) 
+	of	_ -> true
+	catch
+		{warning, Msg} -> 
+			io:format("Warning: ~p~n", [Msg]),
+			false;
+		_-> false
+	end.
 
 
 %
@@ -145,32 +152,50 @@ run_tests(Config, [Test | OtherTests]) ->
 	io:format("    Send Request ~p ~n", [Test#test.request_name]),
 	io:format("    Reply Rule ~p ~n", [Test#test.reply_name]),
 
-	case cfg_get_request_entry(Config, Test#test.request_name) of
-		{error} -> 
-			io:format("    Warning: missing request entry ~p~n", [Test#test.request_name]),
-			false;
-		{ok, ReqEntry} ->
-			case cfg_get_reply_entry(Config, Test#test.reply_name) of
-				{error} ->
-					io:format("    Warning: missing reply entry ~p~n", [Test#test.reply_name]),
-					false;
-				{ok, RepEntry} ->
-					proper:quickcheck(outer_proper_test(Config, ReqEntry, RepEntry))
-			end
-	end,
+	{ok, ReqEntry} = cfg_get_request_entry(Config, Test#test.request_name),
+	{ok, RepEntry} = cfg_get_reply_entry(Config, Test#test.reply_name),
+	proper:quickcheck(outer_proper_test(Config, ReqEntry, RepEntry)),
 	run_tests(Config, OtherTests).
 
 
 %
+% @spec cfg_get_request_entry(Config, EntryName) -> {ok, Entry} | {error}
+% where
+%	Config = resttcfg()
+%	EntryName = string()
+%	Entry = request_record()
 %
+cfg_get_request_entry(Config, EntryName) ->
+	case [E || E <- Config#resttcfg.req_list, is_record(E, request), E#request.name == EntryName] 
+	of
+		[Entry] -> {ok, Entry}; 
+		[] ->
+			Msg = lists:flatten(io_lib:format("Warning: missing request entry ~p~n", [EntryName])),
+			throw({warning, Msg})
+	end.
+
+
 %
+% @spec cfg_get_reply_entry(Config, EntryName) -> {ok, Entry} | {error}
+% where
+%	Config = resttcfg()
+%	EntryName = string()
+%	Entry = request_record()
+%
+cfg_get_reply_entry(Config, EntryName) ->
+	case [E || E <- Config#resttcfg.rep_list, is_record(E, reply), E#reply.name == EntryName]
+	of
+		[Entry] -> {ok, Entry};
+		[] ->
+			Msg = lists:flatten(io_lib:format("Warning: missing reply entry ~p~n", [EntryName])),
+			throw({warning, Msg})
+	end.
+
+
 outer_proper_test(Config, ReqEntry, RepEntry) ->
 	?FORALL(ConfigWithGeneratedVars, Config, inner_proper_test(ConfigWithGeneratedVars, ReqEntry, RepEntry)).
 
 
-%
-%
-%
 inner_proper_test(Config, ReqEntry, RepEntry) -> 
 	ServerReply = http_request(Config#resttcfg.placeholder_list, ReqEntry),
 	case evaluate_server_reply(Config, RepEntry#reply.match_list, ServerReply) of
@@ -486,41 +511,6 @@ tool_get_response_as_json(SingleURI, GetValue) ->
 http_request(Request) ->
 	http_request([], Request).
 
-
-%
-% @spec cfg_get_request_entry(Config, EntryName) -> {ok, Entry} | {error}
-% where
-%	Config = resttcfg()
-%	EntryName = string()
-%	Entry = request_record()
-%
-cfg_get_request_entry(Config, EntryName) ->
-	
-	case
-		[E || E <- Config#resttcfg.req_list, is_record(E, request), E#request.name == EntryName] 
-	of
-		[Entry] -> 
-			{ok, Entry}; 
-		[] -> 
-			{error}
-	end.
-
-%
-% @spec cfg_get_reply_entry(Config, EntryName) -> {ok, Entry} | {error}
-% where
-%	Config = resttcfg()
-%	EntryName = string()
-%	Entry = request_record()
-%
-cfg_get_reply_entry(Config, EntryName) ->
-	case
-		[E || E <- Config#resttcfg.rep_list, is_record(E, reply), E#reply.name == EntryName]
-	of
-		[Entry] -> 
-			{ok, Entry} ;
-		[] ->
-			{error}
-	end.
 
 %
 % @spec cfg_get_placeholder_entry(Config, EntryName) -> {ok, Entry} | {error}
