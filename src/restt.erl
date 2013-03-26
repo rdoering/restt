@@ -21,11 +21,10 @@
 
 -export([
 	quickcheck/1,
+	run_quickcheck_example/0,
 	param_to_str/3,
 	param_to_str/1,
-	tool_get_response_as_json/1,
-	test1/0,
-	day/0
+	tool_get_response_as_json/1
 	]).
 
 -export_type([resttcfg/0]).
@@ -51,6 +50,8 @@
 					def::{min_value(), max_value()}|{} }.
 -record(constref, {name}).
 -type constref() :: #constref{name::string()}.
+-record(varref, {name}).
+-type varref() :: #varref{name::string()}.
 -type varlist() :: [const() | var()].
 
 -record(constcombo, {fmt = "", names=[]}).
@@ -79,23 +80,6 @@
 
 -type response() :: {ok, Status::integer(), ResponseHeaders::term(), ResponseBody::term()} 
 					| {ibrowse_req_id, Req_id::term()} | {error, Reason::term()}.
--spec http_req(varlist(), request()) -> response().
-http_req(VarList, Request=#request{}) ->
-	%io:format("http_req: Request:~p~n", [Request]),
-	ParamStr = param_to_str(VarList, Request#request.params),
-	PathAndParams = string:concat(Request#request.path, ParamStr),
-	
-	Url = string:concat(Request#request.host, PathAndParams),
-
-	ibrowse:send_req(Url, 
-					 Request#request.header, 
-					 Request#request.method,
-					 Request#request.body, 
-					 []).
-
--spec http_req(request()) -> response().
-http_req(Request) ->
-	http_req([], Request).
 
 
 %
@@ -111,19 +95,11 @@ param_to_str(ListOfParams) ->
 	param_to_str(ListOfParams, "", 0).
 
 param_to_str([{Key, Value} | Rest], IncompleteResultString, NumOfParam) ->
-	
-	% Chose separator
 	case NumOfParam of
-		0 ->
-			StringWithDelimiter = "?";
-		_ ->
-			StringWithDelimiter = string:concat(IncompleteResultString, "&")
+		0 -> StringWithDelimiter = "?";
+		_ -> StringWithDelimiter = string:concat(IncompleteResultString, "&")
 	end,
-
-	% Process params
 	NewIncompleteResultString = string:concat(StringWithDelimiter, string:concat(Key, string:concat("=", Value))),
-	
-	% Recursion
 	param_to_str(Rest, NewIncompleteResultString, NumOfParam + 1);
 param_to_str([], ResultString, _) ->
 	ResultString.
@@ -182,7 +158,6 @@ run_tests(Config, [Test | OtherTests]) ->
 					proper:quickcheck(outer_proper_test(Config, ReqEntry, RepEntry))
 			end
 	end,
-
 	run_tests(Config, OtherTests).
 
 
@@ -190,8 +165,6 @@ run_tests(Config, [Test | OtherTests]) ->
 %
 %
 outer_proper_test(Config, ReqEntry, RepEntry) ->
-	%io:format("    Request Content..: ~n~p~n", [ReqEntry]),
-	%io:format("    Reply Content....: ~n~p~n", [RepEntry]),
 	?FORALL(ConfigWithGeneratedVars, Config, inner_proper_test(ConfigWithGeneratedVars, ReqEntry, RepEntry)).
 
 
@@ -199,17 +172,143 @@ outer_proper_test(Config, ReqEntry, RepEntry) ->
 %
 %
 inner_proper_test(Config, ReqEntry, RepEntry) -> 
-	%Info = [ {Name, Value} || ValueList = #var{value=Value, name=Name}<-Config#resttcfg.placeholder_list, is_record(ValueList, var)],
-	%io:format("Vars....: ~p~n", [Info]),
-	
-	ServerReply = http_req(Config#resttcfg.placeholder_list, ReqEntry),
+	ServerReply = http_request(Config#resttcfg.placeholder_list, ReqEntry),
 	case evaluate_server_reply(Config, RepEntry#reply.match_list, ServerReply) of
-		{failed, _FailedReason} ->
-			%io:format("    Result: Failed (~p)~n", [FailedReason]),
-			false;
-		{ok} ->
-			%io:format("    Result: Passed~n"),
-			true
+		{failed, _FailedReason} -> false;
+		{ok} ->	true
+	end.
+
+
+-spec http_request(varlist(), request()) -> response().
+http_request(VarList, Request=#request{}) ->
+	ParamStr = param_to_str(VarList, Request#request.params),
+	PathAndParams = string:concat(Request#request.path, ParamStr),
+	Url = string:concat(Request#request.host, PathAndParams),
+	ibrowse:send_req(Url, Request#request.header, Request#request.method, Request#request.body, []).
+
+
+%%
+%% @doc Evaluate response from server.
+%%
+%% @spec evaluate_server_reply(Config, ConditionList, ServerReply) -> Result
+%% where
+%%  Config = config()
+%% 	ConditionList = {header, Header::list_of_key_value_tupels()} | {jbody, Body::rfc4627_oj()} | {status, Num::integer()}
+%%	ServerReply =  {ok:atom(), Status::string(), ResponseHeaders::list_of_key_value_tupels(), ResponseBody::json_string()}
+%%	Result = ok | {failed, What::kind_as_atom(), expected(), realResponse()}
+%% @end
+%% 
+evaluate_server_reply(_Config, [], _ServerReply) ->
+	ok;
+evaluate_server_reply(Config, [Condition | ConditionList], ServerReply) ->
+	case evaluate_server_reply(Config, Condition, ServerReply) of
+		ok ->
+			evaluate_server_reply(Config, ConditionList, ServerReply);
+		FailedReason ->
+			FailedReason
+	end;
+evaluate_server_reply(_Config, {header_exact, Headers}, {ok, _Status, ResponseHeaders, _ResponseBody}) ->
+	HeadersSorted=lists:sort(Headers),
+	ResponseHeadersSorted=lists:sort(ResponseHeaders),
+	case HeadersSorted of
+		ResponseHeadersSorted ->
+			{ok};
+		_Else ->
+			{failed, [{missmatch, header_exact}, {expected, HeadersSorted}, {response, ResponseHeadersSorted}]}
+	end;
+evaluate_server_reply(_Config, {header_part, Headers}, {ok, _Status, ResponseHeaders, _ResponseBody}) ->
+	%TODO: check each header
+	Members = [X||X<-Headers, lists:member(X,ResponseHeaders)],
+	MembersCount = length(Members),
+	HeadersCount = length(Headers),
+	case MembersCount of
+		HeadersCount ->
+			{ok};
+		_Else ->
+			{failed, [{missmatch, header}, {expected, Headers}, {response, ResponseHeaders}]}
+	end;
+evaluate_server_reply(Config, {json_body, ExpectedReplyBody}, {ok, _Status, _ResponseHeaders, ResponseBody}) ->
+	{ok, ResponseBodyJson, _} = rfc4627:decode(ResponseBody),
+	evaluate_json(Config, ExpectedReplyBody, ResponseBodyJson);
+evaluate_server_reply(_Config, {status, Num}, {ok, Status, _ResponseHeaders, _ResponseBody}) ->
+	{StatusInteger, _} = string:to_integer(Status),
+	case Num of
+		StatusInteger ->
+			{ok};
+		_Else ->
+			{failed, [{missmatch, status}, {expected, Num}, {response, StatusInteger}]}
+	end.
+
+
+evaluate_json(_Config, [],[]) ->
+    {ok};
+evaluate_json(Config, {obj, ExpectedReply}, {obj, Reply}) ->
+	try evaluate_json(Config, ExpectedReply, Reply) 
+	of
+		_ ->
+			{ok}
+	catch
+		throw:Other ->
+			Other
+	end;
+evaluate_json(Config, {#constref{name=VarName}, ExpectedReplyValue}, {ReplyKey, ReplyValue}) ->
+    evaluate_Placeholder(Config, VarName, ReplyKey),
+    evaluate_json(Config, ExpectedReplyValue, ReplyValue);
+evaluate_json(Config, {Key, ExpectedReplyValue}, {Key, ReplyValue}) when is_list(Key)->
+    evaluate_json(Config, ExpectedReplyValue, ReplyValue);
+evaluate_json(Config, [ExpectedReplyKeyValue | ExpectedReplyRest], [ReplyKeyValue | ReplyRest]) ->
+    evaluate_json(Config, ExpectedReplyKeyValue, ReplyKeyValue),
+    evaluate_json(Config, ExpectedReplyRest, ReplyRest);
+evaluate_json(Config, #constref{name=VarName}, ReplyValue) ->
+    evaluate_Placeholder(Config, VarName, ReplyValue);
+evaluate_json(_Config, Value, Value) ->
+    {ok};
+evaluate_json(_Config, ExpectedReplyValue, ReplyValue) ->
+	Msg = lists:flatten(io_lib:format("Pattern ~p does not match ~p.", [ExpectedReplyValue, ReplyValue])),
+    {failed, {jbody, [{missmatch, ExpectedReplyValue}, {msg, Msg}]}}.
+
+evaluate_Placeholder(Config, VarName, Term) ->
+	case cfg_get_placeholder_entry(Config, VarName) of
+		{error} -> 
+			Msg = lists:flatten(io_lib:format("Variable ~p not declared.", [VarName])),
+			throw({failed, [{missmatch, var}, {msg, Msg}]});
+		
+		{ok, VarEntry} ->
+			evaluate_Placeholder_type(VarEntry, Term),
+			evaluate_Placeholder_value(VarEntry, Term),
+			evaluate_Placeholder_def(VarEntry, Term)
+	end.
+
+evaluate_Placeholder_type(#var{type=Type, name=VarName}, Term) ->
+	case debutten:validate(Term, {Type}) of
+		false ->
+			Msg = lists:flatten(io_lib:format("Variable ~p does not match ~p.", [VarName, Term])),
+			throw({failed, [{missmatch, var}, {msg, Msg}]});
+		true -> 
+			{ok}
+	end.
+
+evaluate_Placeholder_value(#var{is_generated=false}, _Term) ->
+	{ok};
+evaluate_Placeholder_value(#var{is_generated=true, value=Value, name=VarName}, Term) ->
+	case Term of
+		Value ->
+			{ok};
+		_Else ->
+			Msg = lists:flatten(io_lib:format("Variable ~p (Value:~p) does not match ~p.", [VarName, Value, Term])),
+			throw({failed, [{missmatch, var}, {msg, Msg}]})
+	end.
+
+evaluate_Placeholder_def(#var{def={}}, _Term) ->
+	{ok};
+evaluate_Placeholder_def(#var{name=VarName, def={Min, Max}}, Term) ->
+	try
+		true = Term >= Min,
+		true = Term =< Max
+	catch
+		_:_ -> 
+			Msg = lists:flatten(io_lib:format("Variable ~p(value:~p) is not in btw. ~p and ~p.", [VarName, Term, Min, Max])),
+			throw({failed, [{missmatch, var},{mag, Msg}]})
 	end.
 
 
@@ -352,129 +451,6 @@ generate_static_value(VarList, #constref{name=Name})->
 generate_static_value(_VarList, Content) ->
 	Content.
 
-%%
-%% @doc Evaluate response from server.
-%%
-%% @spec evaluate_server_reply(Config, ConditionList, ServerReply) -> Result
-%% where
-%%  Config = config()
-%% 	ConditionList = {header, Header::list_of_key_value_tupels()} | {jbody, Body::rfc4627_oj()} | {status, Num::integer()}
-%%	ServerReply =  {ok:atom(), Status::string(), ResponseHeaders::list_of_key_value_tupels(), ResponseBody::json_string()}
-%%	Result = ok | {failed, What::kind_as_atom(), expected(), realResponse()}
-%% @end
-%% 
-evaluate_server_reply(_Config, [], _ServerReply) ->
-	ok;
-evaluate_server_reply(Config, [Condition | ConditionList], ServerReply) ->
-	case evaluate_server_reply(Config, Condition, ServerReply) of
-		ok ->
-			evaluate_server_reply(Config, ConditionList, ServerReply);
-		FailedReason ->
-			FailedReason
-	end;
-evaluate_server_reply(_Config, {header_exact, Headers}, {ok, _Status, ResponseHeaders, _ResponseBody}) ->
-	HeadersSorted=lists:sort(Headers),
-	ResponseHeadersSorted=lists:sort(ResponseHeaders),
-	case HeadersSorted of
-		ResponseHeadersSorted ->
-			{ok};
-		_Else ->
-			{failed, [{missmatch, header_exact}, {expected, HeadersSorted}, {response, ResponseHeadersSorted}]}
-	end;
-evaluate_server_reply(_Config, {header_part, Headers}, {ok, _Status, ResponseHeaders, _ResponseBody}) ->
-	Members = [X||X<-Headers, lists:member(X,ResponseHeaders)],
-	MembersCount = length(Members),
-	HeadersCount = length(Headers),
-	case MembersCount of
-		HeadersCount ->
-			{ok};
-		_Else ->
-			{failed, [{missmatch, header}, {expected, Headers}, {response, ResponseHeaders}]}
-	end;
-evaluate_server_reply(Config, {json_body, ExpectedReplyBody}, {ok, _Status, _ResponseHeaders, ResponseBody}) ->
-	{ok, ResponseBodyJson, _} = rfc4627:decode(ResponseBody),
-	evaluate_json(Config, ExpectedReplyBody, ResponseBodyJson);
-evaluate_server_reply(_Config, {status, Num}, {ok, Status, _ResponseHeaders, _ResponseBody}) ->
-	{StatusInteger, _} = string:to_integer(Status),
-	case Num of
-		StatusInteger ->
-			{ok};
-		_Else ->
-			{failed, [{missmatch, status}, {expected, Num}, {response, StatusInteger}]}
-	end.
-
-
-evaluate_json(_Config, [],[]) ->
-    {ok};
-evaluate_json(Config, {obj, ExpectedReply}, {obj, Reply}) ->
-	try evaluate_json(Config, ExpectedReply, Reply) 
-	of
-		_ ->
-			{ok}
-	catch
-		throw:Other ->
-			Other
-	end;
-evaluate_json(Config, {#constref{name=VarName}, ExpectedReplyValue}, {ReplyKey, ReplyValue}) ->
-    evaluate_Placeholder(Config, VarName, ReplyKey),
-    evaluate_json(Config, ExpectedReplyValue, ReplyValue);
-evaluate_json(Config, {Key, ExpectedReplyValue}, {Key, ReplyValue}) when is_list(Key)->
-    evaluate_json(Config, ExpectedReplyValue, ReplyValue);
-evaluate_json(Config, [ExpectedReplyKeyValue | ExpectedReplyRest], [ReplyKeyValue | ReplyRest]) ->
-    evaluate_json(Config, ExpectedReplyKeyValue, ReplyKeyValue),
-    evaluate_json(Config, ExpectedReplyRest, ReplyRest);
-evaluate_json(Config, #constref{name=VarName}, ReplyValue) ->
-    evaluate_Placeholder(Config, VarName, ReplyValue);
-evaluate_json(_Config, Value, Value) ->
-    {ok};
-evaluate_json(_Config, ExpectedReplyValue, ReplyValue) ->
-	Msg = lists:flatten(io_lib:format("Pattern ~p does not match ~p.", [ExpectedReplyValue, ReplyValue])),
-    {failed, {jbody, [{missmatch, ExpectedReplyValue}, {msg, Msg}]}}.
-
-evaluate_Placeholder(Config, VarName, Term) ->
-	case cfg_get_placeholder_entry(Config, VarName) of
-		{error} -> 
-			Msg = lists:flatten(io_lib:format("Variable ~p not declared.", [VarName])),
-			throw({failed, [{missmatch, var}, {msg, Msg}]});
-		
-		{ok, VarEntry} ->
-			evaluate_Placeholder_type(VarEntry, Term),
-			evaluate_Placeholder_value(VarEntry, Term),
-			evaluate_Placeholder_def(VarEntry, Term)
-	end.
-
-evaluate_Placeholder_type(#var{type=Type, name=VarName}, Term) ->
-	case debutten:validate(Term, {Type}) of
-		false ->
-			Msg = lists:flatten(io_lib:format("Variable ~p does not match ~p.", [VarName, Term])),
-			throw({failed, [{missmatch, var}, {msg, Msg}]});
-		true -> 
-			{ok}
-	end.
-
-evaluate_Placeholder_value(#var{is_generated=false}, _Term) ->
-	{ok};
-evaluate_Placeholder_value(#var{is_generated=true, value=Value, name=VarName}, Term) ->
-	case Term of
-		Value ->
-			{ok};
-		_Else ->
-			Msg = lists:flatten(io_lib:format("Variable ~p (Value:~p) does not match ~p.", [VarName, Value, Term])),
-			throw({failed, [{missmatch, var}, {msg, Msg}]})
-	end.
-
-evaluate_Placeholder_def(#var{def={}}, _Term) ->
-	{ok};
-evaluate_Placeholder_def(#var{name=VarName, def={Min, Max}}, Term) ->
-	try
-		true = Term >= Min,
-		true = Term =< Max
-	catch
-		_:_ -> 
-			Msg = lists:flatten(io_lib:format("Variable ~p(value:~p) is not in btw. ~p and ~p.", [VarName, Term, Min, Max])),
-			throw({failed, [{missmatch, var},{mag, Msg}]})
-	end.
-
 
 %
 %
@@ -485,7 +461,7 @@ tool_get_response_as_json(Request) ->
 tool_get_response_as_json(Request = #request{}, GetValue) ->
 	initiate_libs(),
 
-	Response = http_req(Request),
+	Response = http_request(Request),
 	case Response of
 		{ok, _Status, _ResponseHeaders, ResponseBody} ->
 			case rfc4627:decode(ResponseBody) of
@@ -504,6 +480,11 @@ tool_get_response_as_json(Request = #request{}, GetValue) ->
 	end;
 tool_get_response_as_json(SingleURI, GetValue) ->
 	tool_get_response_as_json(#request{host=SingleURI, method=get}, GetValue). 
+
+
+-spec http_request(request()) -> response().
+http_request(Request) ->
+	http_request([], Request).
 
 
 %
@@ -685,12 +666,15 @@ evaluate_json_test() ->
 
 
 quickcheck_test_() ->
+	{timeout, 6*60, run_quickcheck_example}.
+
+run_quickcheck_example() ->
 	% Make sure, using right type. (For example: 190 isn't a float!)
 	Vars = [#const{name="vLat", type=float, value=0.000011, def={-180.0, 180.0}},
 			#const{name="vLon", type=float, value=0.000022, def={-180.0, 180.0}},
 			#var{name="vHours", type=integer, def={0, 24}},
 			#var{name="vMinutes", type=integer, def={0, 60}},
-			#var{name="vFloatPercent", type=float, def={0.0, 1.0}},
+			#var{name="vFloat1", type=float, def={0.0, 1.0}},
 			#const{name="vHoursG", type=integer, def={0, 24}},
 			#const{name="vMinutesG", type=integer},
 			#const{name="vFloatPercentG", type=float, def={0.0, 1.0}} ],
@@ -740,7 +724,7 @@ quickcheck_test_() ->
 				  				{"geometry",
 				   				{obj,[{"bounds",
 						  				{obj,[{"northeast",
-								 				{obj,[{"lat",52.6754542},
+								 				{obj,[{"lat",#varref{name="vFloat1"}},
 									   				{"lng",13.7611176}]}},
 												{"southwest",
 								 				{obj,[{"lat",52.33962959999999},
@@ -781,13 +765,13 @@ quickcheck_test_() ->
 			 {test, "test6", "req2", "rep2", 100}],
 
 	Config = #resttcfg{placeholder_list=Vars, req_list=Requests, rep_list=Replies, test_list=Tests},
-	{timeout, 6*60, ?_assertEqual(true, quickcheck(Config))}.
+	?assertEqual(true, quickcheck(Config)).
 
 
 %
 % Request for http://maps.googleapis.com/maps/api/geocode/json?address=Berlin,Germany&sensor=false
 %
-http_req_test() ->
+http_request_test() ->
 	A = #request{name="sample1",
 		host="http://maps.googleapis.com", 
 		path="/maps/api/geocode/json", 
@@ -796,7 +780,7 @@ http_req_test() ->
 		method=get},
 
 	io:format("Request: ~n~p~n", [A]),
-	Res = http_req(A),
+	Res = http_request(A),
 	io:format("Result: ~n~p~n", [Res]),
 	{Rc, _State, _Header, _Body} = Res,
 	?assert( Rc == ok).
@@ -812,96 +796,6 @@ param_to_str_test([{Expected, Input} | Rest]) ->
 	param_to_str_test(Rest);
 param_to_str_test([]) ->
 	ok.
-
-
-%
-% Proper testing
-%
-prop_quicktest() ->
-	prop_quicktest(1000).
-
-prop_quicktest(Repetitions) ->
-	proper:quickcheck(test1(), Repetitions).
-
-
-test1() ->
-	{Min, Max} = {1.0, 100.0},
-	Doc = [
-		{"factor1", {xyz_type, float, [Min, Max]}}
-		, {"q", "lala"}
-		, {"factor2", {xyz_type, float, [Min, Max]}}
-		, {"q", "hua"}
-	],
-	Types = extract_types(Doc),
-	Evaluator = evaluator(),
-	?FORALL(T, Types, Evaluator(T, Doc)).
-
-evaluator() ->
-	fun(ArgsTupel, Doc) ->
-		Args = tuple_to_list(ArgsTupel),
-		DocReplaced = insert_values_for_types(Args, Doc),
-		io:format("DocReplaced: ~p\n", [DocReplaced]),
-		% do the actual server call here
-		true
-	end.
-
-extract_types(Doc) ->
-	list_to_tuple(
-		[make_type(Fun, Args)|| E = {_Key, {?TYPEMARKER, Fun, Args}} <- Doc, is_value_with_type(E)]
-	).
-
-insert_values_for_types([], DocElements) ->
-	DocElements;
-
-insert_values_for_types([V|ValuesRest], [D|DocElementRest]) ->
-	case is_value_with_type(D) of
-		true ->
-			% we replace the doc element with the value
-			[insert_value(V, D)|insert_values_for_types(ValuesRest, DocElementRest)];
-		false ->
-			% the doc element is static, so we pass
-			[D|insert_values_for_types([V|ValuesRest], DocElementRest)]
-	end.
-
-% we can't dynamically make proper types like:
-% erlang:apply(?MODULE, Fun, Args)
-% so we have to spell them all out.
-% find all types in http://proper.softlab.ntua.gr/papers/proper_types.pdf
-make_type(float, [Min, Max]) ->
-	float(Min, Max).
-
-is_value_with_type({_, {?TYPEMARKER, _, _}}) ->
-	true;
-is_value_with_type(_) ->
-	false.
-
-insert_value(Value, {Key, {?TYPEMARKER, _, _}}) ->
-	{Key, Value}.
-	
-
-%
-%
-%
-m_test() ->
-	Vars = [#var{name="vHours", type=integer, value=integer(0, 24), def=[{min, 0},{max, 24}]},
-			#var{name="vText", type=string, value=string()},
-			#var{name="vFloatPercent", type=float, def=[{min, 0.0},{max, 1.0}]} ],
-
-	proper:quickcheck(measure("Der Titel", [2, 30, 60], mprop_test(Vars))).
-
-mprop_test(Vars) ->
-	F = fun (Input) -> 
-		io:format("Input: ~p~n", [Input]),
-		true==true
-		end,
-	io:format("hi~n"),
-
-	proper:with_title("hello"),
-	
-	?FORALL(ProcessedVars, Vars, F(ProcessedVars)).
-
-
-day() -> union(['mo','tu','we','th','fr','sa','su']).
 
 
 tool_get_response_as_json_test() ->
