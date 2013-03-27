@@ -685,9 +685,8 @@ run_quickcheck_example() ->
 				],
 
 
-	Replies = [{reply, 
-				"rep1",  
-				[	{status, 200},
+	Replies = [#reply{name="rep1",  
+				match_list=[	{status, 200},
 					{header_part, 
 						[	{"Content-Type","application/json; charset=UTF-8"},
 							%{"Date","Sun, 30 Sep 2012 14:24:30 GMT"},
@@ -733,9 +732,8 @@ run_quickcheck_example() ->
 		  				{"status",<<"OK">>}]}
 					}
 				]},
-			{reply,
-				"rep2",
-				[	{status, 200},
+			#reply{name="rep2",  
+				match_list=[	{status, 200},
 					{json_body, 
 						{obj,[{"results",
         					 [{obj,[{"elevation",1608.637939453125},
