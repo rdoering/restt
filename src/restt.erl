@@ -156,13 +156,13 @@ run_tests(Config, [Test | OtherTests], Result) ->
 	case proper:quickcheck(outer_proper_test(Config, RequestEntry, ReplyEntry), [{numtests, Test#test.iter}, quiet])
 	of
 		{error, Reason} -> 
-			io:format("Error(~p) while running test ~p ~n", [Reason, Test#test.name]),
+			io:format("Error(~p) while running test ~p. ~n", [Reason, Test#test.name]),
 			false;
 		false -> 
-			io:format("Test ~p failed~n", [Test#test.name]),
+			io:format("Test ~p failed.~n", [Test#test.name]),
 			run_tests(Config, OtherTests, false);
 		true -> 
-			io:format("Test ~p successfully~n", [Test#test.name]),
+			io:format("Test ~p successfully.~n", [Test#test.name]),
 			run_tests(Config, OtherTests, Result)
 	end.
 
@@ -210,8 +210,8 @@ inner_proper_test(Config, RequestEntry, ReplyEntry) ->
 	try evaluate_server_reply(Config, ReplyEntry#reply.match_list, ServerReply) 
 	of {ok} -> true
 	catch
-		throw:{failed, _Reason} ->
-			%io:format("Failed: ~p~n", [Reason]),
+		throw:{failed, Reason} ->
+			io:format("Failed: ~p~n", [Reason]),
 			false;
 		_:_ -> false
 	end.
