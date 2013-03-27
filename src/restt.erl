@@ -560,7 +560,7 @@ evaluate_json_test() ->
 
 	Pattern0 = { obj,[{"result", #constref{name="Var0"}}]},
 	Input0 = { obj,[{"result","super"}]},
-	?assertMatch({failed, _}, evaluate_json(Config, Pattern0, Input0)),
+	?assertException(throw, {failed, _}, evaluate_json(Config, Pattern0, Input0)),
 	
 	Pattern1 = { obj,[{"result", #constref{name="Var1"}}]},
 	Input1 = { obj,[{"result","super"}]},
@@ -576,7 +576,7 @@ evaluate_json_test() ->
 
 	Pattern4 = { obj,[{"time", #constref{name="vHours"}}]},
 	Input4 = { obj,[{"time",61}]},
-	?assertMatch({failed, _}, evaluate_json(Config, Pattern4, Input4)),
+	?assertException(throw, {failed, _}, evaluate_json(Config, Pattern4, Input4)),
 
 	Pattern5 = { obj,[{"percent", #constref{name="vFloatPercent"}}]},
 	Input5 = { obj,[{"percent",0.121211234}]},
@@ -584,7 +584,7 @@ evaluate_json_test() ->
 
 	Pattern6 = { obj,[{"percent", #constref{name="vFloatPercent"}}]},
 	Input6 = { obj,[{"percent",1.021211234}]},
-	?assertMatch({failed, _}, evaluate_json(Config, Pattern6, Input6)),
+	?assertException(throw, {failed, _}, evaluate_json(Config, Pattern6, Input6)),
 
 	Pattern={	obj,[{"results",
 		   				 [{obj,[{"address_components",
