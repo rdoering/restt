@@ -643,7 +643,7 @@ evaluate_json_test() ->
 
 
 quickcheck_test_() ->
-	{timeout, 6*60, run_quickcheck_example}.
+	{timeout, 6*60, ?_assertEqual(true, run_quickcheck_example())}.
 
 run_quickcheck_example() ->
 	% Make sure, using right type. (For example: 190 isn't a float!)
@@ -742,7 +742,7 @@ run_quickcheck_example() ->
 			 {test, "test6", "req2", "rep2", 100}],
 
 	Config = #resttcfg{placeholder_list=Vars, req_list=Requests, rep_list=Replies, test_list=Tests},
-	?assertEqual(true, quickcheck(Config)).
+	quickcheck(Config).
 
 
 %
