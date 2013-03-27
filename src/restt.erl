@@ -126,7 +126,7 @@ quickcheck(Config) ->
 
 	ListOfTests = InitializedConfig#resttcfg.test_list,
 	try run_tests(InitializedConfig, ListOfTests) 
-	of	_ -> true
+	of	Result -> Result
 	catch
 		throw:{warning, Msg} -> 
 			io:format("Warning: ~p~n", [Msg]),
@@ -138,19 +138,33 @@ quickcheck(Config) ->
 %
 % Go step by step through all tests
 %
-% @spec run_tests(Config, Tests) -> true | false
+% @spec run_tests(Config, Tests, Result) -> true | false
 % where
 %	Config = list()
 %	Tests = list()
+%   Result = boolean()
 % @end
 %
-run_tests(_Config, []) ->
-	true;
-run_tests(Config, [Test | OtherTests]) ->
+run_tests(Config, Tests) ->
+	PresetResult = true,
+	run_tests(Config, Tests, PresetResult).
+run_tests(_Config, [], Result) ->
+	Result;
+run_tests(Config, [Test | OtherTests], Result) ->
 	{ok, RequestEntry} = cfg_get_request_entry(Config, Test#test.request_name),
 	{ok, ReplyEntry} = cfg_get_reply_entry(Config, Test#test.reply_name),
-	proper:quickcheck(outer_proper_test(Config, RequestEntry, ReplyEntry)),
-	run_tests(Config, OtherTests).
+	case proper:quickcheck(outer_proper_test(Config, RequestEntry, ReplyEntry), [{numtests, Test#test.iter}, quiet])
+	of
+		{error, Reason} -> 
+			io:format("Error(~p) while running test ~p ~n", [Reason, Test#test.name]),
+			false;
+		false -> 
+			io:format("Test ~p failed~n", [Test#test.name]),
+			run_tests(Config, OtherTests, false);
+		true -> 
+			io:format("Test ~p successfully~n", [Test#test.name]),
+			run_tests(Config, OtherTests, Result)
+	end.
 
 
 %
@@ -196,8 +210,8 @@ inner_proper_test(Config, RequestEntry, ReplyEntry) ->
 	try evaluate_server_reply(Config, ReplyEntry#reply.match_list, ServerReply) 
 	of {ok} -> true
 	catch
-		throw:{failed, Reason} ->
-			io:format("Failed: ~p~n", [Reason]),
+		throw:{failed, _Reason} ->
+			%io:format("Failed: ~p~n", [Reason]),
 			false;
 		_:_ -> false
 	end.
@@ -646,7 +660,6 @@ quickcheck_test_() ->
 	{timeout, 6*60, ?_assertEqual(true, run_quickcheck_example())}.
 
 run_quickcheck_example() ->
-	% Make sure, using right type. (For example: 190 isn't a float!)
 	Vars = [#const{name="vLat", type=float, value=0.000011, def={-180.0, 180.0}},
 			#const{name="vLon", type=float, value=0.000022, def={-180.0, 180.0}},
 			#var{name="vHours", type=integer, def={0, 24}},
@@ -734,20 +747,17 @@ run_quickcheck_example() ->
      				  {"status",<<"OK">>}]} }]}
 			],
 			
-	Tests = [{test, "test1", "req1", "rep1", 100},
-			 {test, "test2", "req2", "rep1", 100},
-			 {test, "test3", "req1", "rep2", 100},
-			 {test, "test4", "req2", "rep2", 100},
-			 {test, "test5", "req1", "rep1", 100},
-			 {test, "test6", "req2", "rep2", 100}],
+	Tests = [#test{name="test1", request_name="req1", reply_name="rep1", iter=100},
+			 #test{name="test2", request_name="req2", reply_name="rep1", iter=100},
+			 #test{name="test3", request_name="req1", reply_name="rep2", iter=100},
+			 #test{name="test4", request_name="req2", reply_name="rep2", iter=100},
+			 #test{name="test5", request_name="req1", reply_name="rep1", iter=100},
+			 #test{name="test6", request_name="req2", reply_name="rep2", iter=100}],
 
 	Config = #resttcfg{placeholder_list=Vars, req_list=Requests, rep_list=Replies, test_list=Tests},
 	quickcheck(Config).
 
 
-%
-% Request for http://maps.googleapis.com/maps/api/geocode/json?address=Berlin,Germany&sensor=false
-%
 http_request_test() ->
 	A = #request{name="sample1",
 		host="http://maps.googleapis.com", 
