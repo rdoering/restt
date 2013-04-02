@@ -51,7 +51,6 @@
 -record(constref, {name}).
 -type constref() :: #constref{name::string()}.
 -record(varref, {name}).
--type varref() :: #varref{name::string()}.
 -type varlist() :: [const() | var()].
 
 -record(constcombo, {fmt = "", names=[]}).
@@ -159,10 +158,10 @@ run_tests(Config, [Test | OtherTests], Result) ->
 			io:format("Error(~p) while running test ~p. ~n", [Reason, Test#test.name]),
 			false;
 		false -> 
-			io:format("Test ~p failed.~n", [Test#test.name]),
+			io:format("Test result: ~p failed.~n", [Test#test.name]),
 			run_tests(Config, OtherTests, false);
 		true -> 
-			io:format("Test ~p successfully.~n", [Test#test.name]),
+			io:format("Test result: ~p successfully.~n", [Test#test.name]),
 			run_tests(Config, OtherTests, Result)
 	end.
 
@@ -277,7 +276,7 @@ evaluate_json(_Config, [],[]) ->
 evaluate_json(Config, {obj, ExpectedReply}, {obj, Reply}) ->
 	evaluate_json(Config, ExpectedReply, Reply);
 evaluate_json(Config, {#constref{name=VarName}, ExpectedReplyValue}, {ReplyKey, ReplyValue}) ->
-    evaluate_Placeholder(Config, VarName, ReplyKey),
+    evaluate_const(Config, VarName, ReplyKey),
     evaluate_json(Config, ExpectedReplyValue, ReplyValue);
 evaluate_json(Config, {Key, ExpectedReplyValue}, {Key, ReplyValue}) when is_list(Key)->
     evaluate_json(Config, ExpectedReplyValue, ReplyValue);
@@ -285,26 +284,38 @@ evaluate_json(Config, [ExpectedReplyKeyValue | ExpectedReplyRest], [ReplyKeyValu
     evaluate_json(Config, ExpectedReplyKeyValue, ReplyKeyValue),
     evaluate_json(Config, ExpectedReplyRest, ReplyRest);
 evaluate_json(Config, #varref{name=VarName}, ReplyValue) ->
-	evaluate_Placeholder(Config, VarName, ReplyValue);
+	evaluate_var(Config, VarName, ReplyValue);
 evaluate_json(Config, #constref{name=VarName}, ReplyValue) ->
-    evaluate_Placeholder(Config, VarName, ReplyValue);
+    evaluate_const(Config, VarName, ReplyValue);
 evaluate_json(_Config, Value, Value) ->
     {ok};
 evaluate_json(_Config, ExpectedReplyValue, ReplyValue) ->
 	Msg = lists:flatten(io_lib:format("Pattern ~p does not match ~p.", [ExpectedReplyValue, ReplyValue])),
 	throw({failed, Msg}).
 
-evaluate_Placeholder(Config, VarName, Term) ->
-	case cfg_get_placeholder_entry(Config, VarName) of
+
+evaluate_var(Config, VarName, Term) ->
+	case cfg_get_var_entry(Config, VarName) of
 		{error} -> 
 			Msg = lists:flatten(io_lib:format("Variable ~p not declared.", [VarName])),
 			throw({failed, Msg});
 		
 		{ok, VarEntry} ->
 			evaluate_Placeholder_type(VarEntry, Term),
-			evaluate_Placeholder_value(VarEntry, Term),
 			evaluate_Placeholder_def(VarEntry, Term)
 	end.
+
+evaluate_const(Config, ConstName, Term) ->
+	case cfg_get_const_entry(Config, ConstName) of
+		{error} -> 
+			Msg = lists:flatten(io_lib:format("Const ~p not declared.", [ConstName])),
+			throw({failed, Msg});
+		
+		{ok, VarEntry} ->
+			evaluate_Placeholder_type(VarEntry, Term),
+			evaluate_Placeholder_value(VarEntry, Term)
+	end.
+
 
 evaluate_Placeholder_type(#var{type=Type, name=PlaceholderName}, Term) ->
 	evaluate_Placeholder_type(Type, PlaceholderName, Term);
@@ -316,23 +327,17 @@ evaluate_Placeholder_type(Type, PlaceholderName, Term) ->
 		false ->
 			Msg = lists:flatten(io_lib:format("Placeholder ~p does not match ~p.", [PlaceholderName, Term])),
 			throw({failed, Msg});
-		true -> 
-			{ok}
+		true -> {ok}
 	end.
 
-evaluate_Placeholder_value(#var{}, _Term) ->
-	{ok};
 evaluate_Placeholder_value(#const{value=Value, name=VarName}, Term) ->
 	case Term of
-		Value ->
-			{ok};
+		Value -> {ok};
 		_Else ->
 			Msg = lists:flatten(io_lib:format("Const ~p (Value:~p) does not match ~p.", [VarName, Value, Term])),
 			throw({failed, Msg})
 	end.
 
-evaluate_Placeholder_def(#const{def={}}, _Term) ->
-	{ok};
 evaluate_Placeholder_def(#var{def={}}, _Term) ->
 	{ok};
 evaluate_Placeholder_def(#var{name=VarName, def={Min, Max}}, Term) ->
@@ -346,19 +351,6 @@ evaluate_Placeholder_def(#var{name=VarName, def={Min, Max}}, Term) ->
 	end.
 
 
-%
-% @spec cfg_get_placeholder_entry(Config, EntryName) -> {ok, Entry} | {error}
-% where
-%	Config = resttcfg()
-%	EntryName = string()
-%	Entry = request_record()
-%
-cfg_get_placeholder_entry(Config, EntryName) ->
-	case cfg_get_const_entry(Config, EntryName)
-	of
-		{ok, Entry} -> {ok, Entry} ;
-		_ -> cfg_get_var_entry(Config, EntryName)
-	end.
 cfg_get_var_entry(Config, EntryName) ->
 	case [E || E <- Config#resttcfg.placeholder_list, is_record(E, var), E#var.name == EntryName]
 	of
@@ -716,8 +708,8 @@ run_quickcheck_example() ->
 								 				{obj,[{"lat",#varref{name="vFloat1"}},
 									   				{"lng",13.7611176}]}},
 												{"southwest",
-								 				{obj,[{"lat",52.33962959999999},
-									   				{"lng",13.0911663}]}}]}},
+								 				{obj,[{"lat",52.33946479999999},
+									   				{"lng",#varref{name="vFloat1"}}]}}]}},
 						 				{"location",
 						  				{obj,[{"lat",52.519171},{"lng",13.4060912}]}},
 						 				{"location_type",<<"APPROXIMATE">>},
@@ -726,8 +718,8 @@ run_quickcheck_example() ->
 								 				{obj,[{"lat",52.6754542},
 									   				{"lng",13.7611176}]}},
 												{"southwest",
-								 				{obj,[{"lat",52.33962959999999},
-									   				{"lng",13.0911663}]}}]}}]}},
+								 				{obj,[{"lat",52.33946479999999},
+									   				{"lng",#varref{name="vFloat1"}}]}}]}}]}},
 				  				{"types",[<<"locality">>,<<"political">>]}]}]},
 		  				{"status",<<"OK">>}]}
 					}
