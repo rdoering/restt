@@ -248,14 +248,12 @@ evaluate_server_reply(Config, [{header_exact, Headers} | ConditionRest], {ok, _S
 	end;
 evaluate_server_reply(Config, [{header_part, Headers} | ConditionRest], {ok, _Status, ResponseHeaders, _ResponseBody} = ServerReply) ->
 	%TODO: check each header
-	Members = [X||X<-Headers, lists:member(X,ResponseHeaders)],
-	MembersCount = length(Members),
-	HeadersCount = length(Headers),
-	case MembersCount of
-		HeadersCount -> evaluate_server_reply(Config, ConditionRest, ServerReply);
-		_Else ->
+	Missings = [X||X<-Headers, not lists:member(X,ResponseHeaders)],
+	if 
+		length(Missings) -> 
 			Msg = lists:flatten(io_lib:format("Expected partially header ~p does not match ~p.", [Headers, ResponseHeaders])),
-			throw({failed, Msg})
+			throw({failed, Msg});
+		true -> evaluate_server_reply(Config, ConditionRest, ServerReply)
 	end;
 evaluate_server_reply(Config, [{json_body, ExpectedReplyBody} | ConditionRest], {ok, _Status, _ResponseHeaders, ResponseBody} = ServerReply) ->
 	{ok, ResponseBodyJson, _} = rfc4627:decode(ResponseBody),
@@ -277,6 +275,9 @@ evaluate_json(Config, {obj, ExpectedReply}, {obj, Reply}) ->
 	evaluate_json(Config, ExpectedReply, Reply);
 evaluate_json(Config, {#constref{name=VarName}, ExpectedReplyValue}, {ReplyKey, ReplyValue}) ->
     evaluate_const(Config, VarName, ReplyKey),
+    evaluate_json(Config, ExpectedReplyValue, ReplyValue);
+evaluate_json(Config, {#varref{name=VarName}, ExpectedReplyValue}, {ReplyKey, ReplyValue}) ->
+    evaluate_var(Config, VarName, ReplyKey),
     evaluate_json(Config, ExpectedReplyValue, ReplyValue);
 evaluate_json(Config, {Key, ExpectedReplyValue}, {Key, ReplyValue}) when is_list(Key)->
     evaluate_json(Config, ExpectedReplyValue, ReplyValue);
@@ -365,10 +366,6 @@ cfg_get_const_entry(Config, EntryName) ->
 	end.
 
 
-
-%
-%
-%
 -spec initiate_restt_config(resttcfg()) -> resttcfg().
 initiate_restt_config(Config = #resttcfg{placeholder_list=Vars}) -> 
 	NewVars = initiate_consts_as_proper_variables(Vars, []),
@@ -546,35 +543,36 @@ evaluate_json_test() ->
 			#var{name="Var2", type=string, def={}},
 			#var{name="vHours", type=integer, def={0, 24}},
 			#var{name="vMinutes", type=integer, def={0, 60}},
-			#var{name="vFloatPercent", type=float, def={0.0, 1.0}} ],
+			#var{name="vFloatPercent", type=float, def={0.0, 1.0}},
+			#var{name="vCoordinate", type=float, def={-180.0, 180.0}} ],
 
 	Config = #resttcfg{placeholder_list=Vars, req_list=undefined, rep_list=undefined, test_list=undefined},
 
-	Pattern0 = { obj,[{"result", #constref{name="Var0"}}]},
+	Pattern0 = { obj,[{"result", #varref{name="Var0"}}]},
 	Input0 = { obj,[{"result","super"}]},
 	?assertException(throw, {failed, _}, evaluate_json(Config, Pattern0, Input0)),
 	
-	Pattern1 = { obj,[{"result", #constref{name="Var1"}}]},
+	Pattern1 = { obj,[{"result", #varref{name="Var1"}}]},
 	Input1 = { obj,[{"result","super"}]},
 	?assertMatch({ok}, evaluate_json(Config, Pattern1, Input1)),
 
-	Pattern2 = { obj,[{#constref{name="Var2"}, "super"}]},
+	Pattern2 = { obj,[{#varref{name="Var2"}, "super"}]},
 	Input2 = { obj,[{"result","super"}]},
 	?assertMatch({ok}, evaluate_json(Config, Pattern2, Input2)),
 
-	Pattern3 = { obj,[{"time", #constref{name="vHours"}}]},
+	Pattern3 = { obj,[{"time", #varref{name="vHours"}}]},
 	Input3 = { obj,[{"time",10}]},
 	?assertMatch({ok}, evaluate_json(Config, Pattern3, Input3)),
 
-	Pattern4 = { obj,[{"time", #constref{name="vHours"}}]},
+	Pattern4 = { obj,[{"time", #varref{name="vHours"}}]},
 	Input4 = { obj,[{"time",61}]},
 	?assertException(throw, {failed, _}, evaluate_json(Config, Pattern4, Input4)),
 
-	Pattern5 = { obj,[{"percent", #constref{name="vFloatPercent"}}]},
+	Pattern5 = { obj,[{"percent", #varref{name="vFloatPercent"}}]},
 	Input5 = { obj,[{"percent",0.121211234}]},
 	?assertMatch({ok}, evaluate_json(Config, Pattern5, Input5)),
 
-	Pattern6 = { obj,[{"percent", #constref{name="vFloatPercent"}}]},
+	Pattern6 = { obj,[{"percent", #varref{name="vFloatPercent"}}]},
 	Input6 = { obj,[{"percent",1.021211234}]},
 	?assertException(throw, {failed, _}, evaluate_json(Config, Pattern6, Input6)),
 
@@ -606,7 +604,7 @@ evaluate_json_test() ->
 								 				{obj,[{"lat",52.6754542},
 									   				{"lng",13.7611176}]}},
 												{"southwest",
-								 				{obj,[{"lat",52.33962959999999},
+								 				{obj,[{"lat",#varref{name="vCoordinate"}},
 									   				{"lng",13.0911663}]}}]}}]}},
 				  				{"types",[<<"locality">>,<<"political">>]}]}]},
 		  				{"status",<<"OK">>}]},
